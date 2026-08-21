@@ -1,0 +1,81 @@
+# update-app 配置文件
+# 本文件记录「需要更新什么」。update-app 读取它执行更新，并把结果写入 logs/latest.json + logs/latest.log。
+
+[general]
+# 日志/结果目录（相对本文件所在目录）
+log_dir = "logs"
+# self 自更新的发布产物目录（相对本文件所在目录）
+bin_dir = "bin"
+# 单项更新超时（秒）
+timeout_seconds = 900
+
+# ---------------------------------------------------------------------------
+# 1. Scoop 应用：是否全部更新
+# ---------------------------------------------------------------------------
+[scoop]
+# true = 执行 scoop update *（全部更新）；false = 只更新下面 apps 列出的应用
+update_all = true
+apps = []
+
+# ---------------------------------------------------------------------------
+# 2. 源码型项目：记录本地源码目录，基于该目录更新（默认 git pull --ff-only）
+# ---------------------------------------------------------------------------
+[source]
+
+[[source.projects]]
+name = "update-app"
+path = "C:/Users/Admin/Project/Other/update-app"
+# 可选：自定义更新命令模板（支持 {name} {path}）
+# command = "git -C {path} pull --ff-only"
+# 可选：更新成功后执行的后置命令
+# post_commands = ["dotnet build {path}"]
+
+# [[source.projects]]
+# name = "deepseek-harness"
+# path = "C:/Users/Admin/Project/Other/deepseek-harness"
+# enabled = false
+
+# ---------------------------------------------------------------------------
+# 3. 特殊配置更新：例如 DSH 使用的大量插件，均为源码安装
+#    paths 可以是单个 git 仓库，也可以是包含多个 git 仓库的目录（自动扫描子目录）
+# ---------------------------------------------------------------------------
+[special]
+
+[[special.items]]
+name = "dsh 插件源码"
+paths = [
+  "C:/Users/Admin/Project/Other/dsh-extensions",
+  "C:/Users/Admin/Project/Other/Qwen-MM-Plugins",
+  "C:/Users/Admin/Project/Other/dsh-continual-evolve",
+]
+# 默认对每个路径执行 git pull --ff-only；需要自定义时：
+# command = "git -C {path} pull --ff-only"
+# 示例：拉完 dsh-extensions 后把技能同步到 ~/.dsh/skills（按需启用，注意路径）
+# post_commands = [
+#   'powershell -NoProfile -Command "& { Get-ChildItem C:/Users/Admin/Project/Other/dsh-extensions/skills -Directory | ForEach-Object { $dst = Join-Path C:/Users/Admin/.dsh/skills $_.Name; Copy-Item $_.FullName $dst -Recurse -Force } }"'
+# ]
+
+# ---------------------------------------------------------------------------
+# 4. 已知问题自愈规则：失败输出命中 match（正则）后自动处理
+#    命中但无法自动处理/需要拍板的问题 → 标记 needs_input，由技能停下询问用户
+#    AI 每次解决新问题后，应把「解决方式」固化成这里的一条规则，下次 CLI 自己就能处理
+# ---------------------------------------------------------------------------
+[fixes]
+
+# 网络问题：先跳过，由调用方决定稍后重试
+[[fixes.rules]]
+match = "Could not resolve host|Failed to connect|open git-upload-pack|unable to access"
+hint = "网络暂时不可用，跳过；稍后可由用户触发重试"
+skip = true
+
+# 路径/仓库问题：需要人工确认
+[[fixes.rules]]
+match = "fatal: not a git repository"
+hint = "该目录不是 git 仓库（或路径不对/未 git init），需要人工确认路径"
+ask_user = true
+
+# git 合并冲突：需要人工解决
+[[fixes.rules]]
+match = "CONFLICT \\(content\\)|Merge conflict|Automatic merge failed"
+hint = "git 存在合并冲突，需要人工解决后重试"
+ask_user = true
