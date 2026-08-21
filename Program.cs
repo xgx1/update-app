@@ -13,7 +13,8 @@ public static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("错误: " + ex.Message);
+            // 用 ex.ToString()（消息+堆栈）而不是 ex.Message：空消息异常也能定位根因
+            Console.Error.WriteLine("错误: " + ex);
             return 2;
         }
     }

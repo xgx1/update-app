@@ -66,8 +66,9 @@ public sealed class Runner
             try { ProcessItem(it); }
             catch (Exception ex)
             {
-                _log.Error($"[{it.Category}:{it.Name}] 执行异常: {ex.Message}");
-                Record("failed", it, ex.Message, message: "执行异常");
+                // 用 ex.ToString()（消息+堆栈）而不是 ex.Message：空消息异常也能定位根因
+                _log.Error($"[{it.Category}:{it.Name}] 执行异常:\n{ex}");
+                Record("failed", it, ex.ToString(), message: "执行异常");
             }
         }
         if (_only is not null)
