@@ -45,7 +45,6 @@ path = "C:/Users/Admin/Project/Other/update-app"
 name = "dsh 插件源码"
 paths = [
   "C:/Users/Admin/Project/Other/dsh-extensions",
-  "C:/Users/Admin/Project/Other/Qwen-MM-Plugins",
   "C:/Users/Admin/Project/Other/dsh-continual-evolve",
 ]
 # 默认对每个路径执行 git pull --ff-only；需要自定义时：
