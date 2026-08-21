@@ -256,7 +256,7 @@ public static class Cli
         var outDir = Path.Combine(binDir, DateTime.Now.ToString("yyyyMMdd-HHmmss"));
         Directory.CreateDirectory(outDir);
         Console.WriteLine($"[self] dotnet publish → {outDir}");
-        var pub = ProcessRunner.Run($"\"{dotnet}\" publish \"{csproj}\" -c Release -o \"{outDir}\" -nologo", repo, _TimeoutOf(cfg) * 2);
+        var pub = ProcessRunner.RunExe(dotnet, new[] { "publish", csproj, "-c", "Release", "-o", outDir, "-nologo" }, repo, _TimeoutOf(cfg) * 2);
         if (pub.ExitCode != 0)
         {
             Console.Error.WriteLine("[self] publish 失败:\n" + pub.Output);
@@ -321,35 +321,53 @@ public static class Cli
     }
 }
 
-/// <summary>解析出「带 SDK」的 dotnet：优先 PATH，其次 scoop 的 dotnet-sdk / dotnet9-sdk，最后 Program Files。</summary>
+/// <summary>解析出「带 SDK」且 SDK 版本最高的 dotnet：优先 PATH，其次 scoop 的 dotnet-sdk / dotnet9-sdk，最后 Program Files。</summary>
 public static class DotnetResolver
 {
     public static string? Resolve()
     {
-        var fromPath = ProcessRunner.Run("where dotnet", null, 60).Output
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var d in fromPath)
+        var trace = Environment.GetEnvironmentVariable("UA_TRACE_DOTNET") == "1";
+        void T(string m) { if (trace) Console.WriteLine("[dotnet-trace] " + m); }
+
+        var candidates = new List<(string Path, Version Ver)>();
+        void Add(string p)
         {
-            if (File.Exists(d) && HasSdk(d)) return d;
+            if (candidates.Any(c => c.Path.Equals(p, StringComparison.OrdinalIgnoreCase))) return;
+            if (!File.Exists(p)) { T($"candidate {p} exists=False"); return; }
+            var ver = GetSdkVersion(p);
+            T($"candidate {p} sdk={ver?.ToString() ?? "none"}");
+            if (ver is not null) candidates.Add((p, ver));
         }
+
+        var whereOut = ProcessRunner.Run("where dotnet", null, 60).Output;
+        T($"where dotnet => {whereOut.Replace("\n", " | ")}");
+        foreach (var d in whereOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            Add(d);
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var candidates = new[]
-        {
-            Path.Combine(home, "scoop", "apps", "dotnet-sdk", "current", "dotnet.exe"),
-            Path.Combine(home, "scoop", "apps", "dotnet9-sdk", "current", "dotnet.exe"),
-            @"C:\Program Files\dotnet\dotnet.exe",
-        };
-        foreach (var c in candidates)
-        {
-            if (File.Exists(c) && HasSdk(c)) return c;
-        }
-        return null;
+        foreach (var c in new[]
+                 {
+                     Path.Combine(home, "scoop", "apps", "dotnet-sdk", "current", "dotnet.exe"),
+                     Path.Combine(home, "scoop", "apps", "dotnet9-sdk", "current", "dotnet.exe"),
+                     @"C:\Program Files\dotnet\dotnet.exe",
+                 })
+            Add(c);
+
+        var best = candidates.OrderByDescending(c => c.Ver).FirstOrDefault();
+        return best.Path is null ? null : best.Path;
     }
 
-    private static bool HasSdk(string dotnet)
+    /// <summary>返回该 dotnet 安装的最高 SDK 版本（无 SDK 时返回 null）。</summary>
+    private static Version? GetSdkVersion(string dotnet)
     {
-        var r = ProcessRunner.Run($"\"{dotnet}\" --list-sdks", null, 60);
-        return r.ExitCode == 0 && r.Output.Contains("sdk", StringComparison.OrdinalIgnoreCase);
+        var r = ProcessRunner.RunExe(dotnet, new[] { "--list-sdks" }, null, 60);
+        if (r.ExitCode != 0) return null;
+        Version? best = null;
+        foreach (var line in r.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var token = line.Split(' ')[0].Trim();
+            if (Version.TryParse(token, out var v) && (best is null || v > best)) best = v;
+        }
+        return best;
     }
 }

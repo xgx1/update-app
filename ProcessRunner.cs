@@ -5,7 +5,11 @@ namespace UpdateApp;
 
 public sealed record ProcResult(int ExitCode, string Output);
 
-/// <summary>通过 cmd.exe 执行命令并捕获输出（Windows 下兼容 .cmd/.ps1 shim，如 scoop）。</summary>
+/// <summary>
+/// 命令执行：
+///  - Run：通过 cmd.exe /d /c 执行配置类命令（支持 cmd 语法：管道/重定向/&& 等）。
+///  - RunExe：直接启动可执行文件（ArgumentList 正规引用，路径含空格也安全），用于工具探测/发布。
+/// </summary>
 public static class ProcessRunner
 {
     public static ProcResult Run(string command, string? workDir = null, int timeoutSeconds = 900)
@@ -13,15 +17,27 @@ public static class ProcessRunner
         if (string.IsNullOrWhiteSpace(command))
             return new(-1, "命令为空");
 
+        var psi = NewPsi("cmd.exe", timeoutSeconds, workDir);
+        // 原样交给 cmd 解析（不加外层包装引号）：cmd 能正确处理命令内部的引号。
+        // 注意：自定义命令不要以引号开头（cmd 对首字符为引号的行有特殊剥离规则）。
+        psi.Arguments = "/d /c " + command;
+        return Exec(psi, timeoutSeconds, command);
+    }
+
+    public static ProcResult RunExe(string exe, IEnumerable<string> args, string? workDir = null, int timeoutSeconds = 900)
+    {
+        if (!File.Exists(exe))
+            return new(-1, $"可执行文件不存在: {exe}");
+        var psi = NewPsi(exe, timeoutSeconds, workDir);
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        return Exec(psi, timeoutSeconds, exe + " " + string.Join(" ", args));
+    }
+
+    private static ProcessStartInfo NewPsi(string fileName, int timeoutSeconds, string? workDir)
+    {
         var psi = new ProcessStartInfo
         {
-            FileName = "cmd.exe",
-            // 命令不以引号开头时原样传给 cmd /d /c（cmd 能正确处理命令内部的引号）；
-            // 仅当整条命令以引号开头（如带引号的 exe 路径）时用 /s + 双重引号包装，
-            // 避免外层包装引号与命令内部引号错位。
-            Arguments = command.TrimStart().StartsWith('"')
-                ? $"/d /s /c \"\"{command}\"\""
-                : "/d /c " + command,
+            FileName = fileName,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -29,15 +45,19 @@ public static class ProcessRunner
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
+        if (!string.IsNullOrEmpty(workDir) && Directory.Exists(workDir))
+            psi.WorkingDirectory = workDir;
         // 清理会干扰子进程的环境变量：
         //  - MSBuildSDKsPath：本机被用户级设置为 dotnet9-sdk 的 Sdks，会强制 MSBuild 用错误的 SDK targets
         //  - version=N/A：会被 MSBuild 当作 Version 属性展开，导致 NuGet 报 "N/A" 不是有效的版本字符串
         psi.Environment.Remove("MSBuildSDKsPath");
         psi.Environment.Remove("Version");
         psi.Environment.Remove("version");
-        if (!string.IsNullOrEmpty(workDir) && Directory.Exists(workDir))
-            psi.WorkingDirectory = workDir;
+        return psi;
+    }
 
+    private static ProcResult Exec(ProcessStartInfo psi, int timeoutSeconds, string label)
+    {
         try
         {
             using var p = Process.Start(psi);
@@ -47,7 +67,7 @@ public static class ProcessRunner
             if (!p.WaitForExit(timeoutSeconds * 1000))
             {
                 try { p.Kill(true); } catch { /* ignore */ }
-                return new(124, $"执行超时（>{timeoutSeconds}s）: {command}");
+                return new(124, $"执行超时（>{timeoutSeconds}s）: {label}");
             }
             var outp = so.GetAwaiter().GetResult().Trim();
             var err = se.GetAwaiter().GetResult().Trim();

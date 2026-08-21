@@ -79,3 +79,9 @@ ask_user = true
 match = "CONFLICT \\(content\\)|Merge conflict|Automatic merge failed"
 hint = "git 存在合并冲突，需要人工解决后重试"
 ask_user = true
+
+# 本地有未提交修改（开发中 WIP）：绝不能自动丢弃，停下询问
+[[fixes.rules]]
+match = "cannot pull with rebase: You have unstaged changes|Your local changes would be overwritten|Please commit or stash them"
+hint = "仓库有本地未提交修改（可能是 WIP）：需要确认是 stash/commit 后重试，还是跳过本次更新（先看 git status）"
+ask_user = true
