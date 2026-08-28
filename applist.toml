@@ -56,7 +56,6 @@ command = "yay -Sua --noconfirm"
 name = "dsh 插件源码"
 paths = [
   "/home/sx/MyAI/dsh-extensions",
-  "/home/sx/MyAI/dsh-continual-evolve",
 ]
 # 默认对每个路径执行 git pull --ff-only；需要自定义时：
 # command = "git -C {path} pull --ff-only"
