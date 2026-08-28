@@ -1,4 +1,4 @@
-# update-app 配置文件
+# update-app 配置文件（Arch Linux 版，2026-08-28 由 Windows 版适配）
 # 本文件记录「需要更新什么」。update-app 读取它执行更新，并把结果写入 logs/latest.json + logs/latest.log。
 
 [general]
@@ -6,37 +6,48 @@
 log_dir = "logs"
 # self 自更新的发布产物目录（相对本文件所在目录）
 bin_dir = "bin"
-# 单项更新超时（秒）
-timeout_seconds = 900
+# 单项更新超时（秒）：本机含 pacman/yay 系统级更新，给足 30 分钟
+timeout_seconds = 1800
 
 # ---------------------------------------------------------------------------
-# 1. Scoop 应用：是否全部更新
+# 1. 系统/AUR 软件包：Arch 无 scoop，本段保持关闭（update_all=false + 空 apps = 无任务 no-op）。
+#    真实系统更新通过下方 [source] 的自定义命令项执行（pacman 系统更新 / yay AUR 更新）。
 # ---------------------------------------------------------------------------
 [scoop]
-# true = 执行 scoop update *（全部更新）；false = 只更新下面 apps 列出的应用
-update_all = true
+update_all = false
 apps = []
 
 # ---------------------------------------------------------------------------
-# 2. 源码型项目：记录本地源码目录，基于该目录更新（默认 git pull --ff-only）
+# 2. 源码型项目：记录本地源码目录，基于该目录更新（默认 git pull --ff-only；
+#    自定义 command 则完全替代默认命令，适合 pacman/yay 这类「非 git」更新项）
 # ---------------------------------------------------------------------------
 [source]
 
 [[source.projects]]
 name = "update-app"
-path = "C:/Users/Admin/Project/Other/update-app"
-# 可选：自定义更新命令模板（支持 {name} {path}）
-# command = "git -C {path} pull --ff-only"
-# 可选：更新成功后执行的后置命令
-# post_commands = ["dotnet build {path}"]
+path = "/home/sx/MyAI/update-app"
 
+# 系统更新：pacman -Syu（sudo 本机免密可用）。path 只作为锚点目录（CLI 校验须存在）。
+# 注意：非交互环境 --noconfirm 跳过确认；想人工确认就在终端手动 sudo pacman -Syu
+[[source.projects]]
+name = "pacman 系统更新"
+path = "/var/cache/pacman/pkg"
+command = "sudo pacman -Syu --noconfirm"
+
+# AUR 更新：yay -Sua（只更新 -A 装的 AUR 包，不动仓库包；--noconfirm 跳过交互确认）
+[[source.projects]]
+name = "yay AUR 更新"
+path = "/home/sx/.cache/yay"
+command = "yay -Sua --noconfirm"
+
+# deepseek-harness 源码（默认禁用，需要时取消注释并改 enabled = true）
 # [[source.projects]]
 # name = "deepseek-harness"
-# path = "C:/Users/Admin/Project/Other/deepseek-harness"
+# path = "/home/sx/MyAI/deepseek-harness"
 # enabled = false
 
 # ---------------------------------------------------------------------------
-# 3. 特殊配置更新：例如 DSH 使用的大量插件，均为源码安装
+# 3. 特殊配置更新：DSH 使用的大量插件均为源码安装
 #    paths 可以是单个 git 仓库，也可以是包含多个 git 仓库的目录（自动扫描子目录）
 # ---------------------------------------------------------------------------
 [special]
@@ -44,14 +55,14 @@ path = "C:/Users/Admin/Project/Other/update-app"
 [[special.items]]
 name = "dsh 插件源码"
 paths = [
-  "C:/Users/Admin/Project/Other/dsh-extensions",
-  "C:/Users/Admin/Project/Other/dsh-continual-evolve",
+  "/home/sx/MyAI/dsh-extensions",
+  "/home/sx/MyAI/dsh-continual-evolve",
 ]
 # 默认对每个路径执行 git pull --ff-only；需要自定义时：
 # command = "git -C {path} pull --ff-only"
-# 示例：拉完 dsh-extensions 后把技能同步到 ~/.dsh/skills（按需启用，注意路径）
+# 示例：拉完 dsh-extensions 后把技能同步到 ~/.dsh/skills（按需启用；注意 dsh-extensions/skills 目前只有 dsh-extension-dev）
 # post_commands = [
-#   'powershell -NoProfile -Command "& { Get-ChildItem C:/Users/Admin/Project/Other/dsh-extensions/skills -Directory | ForEach-Object { $dst = Join-Path C:/Users/Admin/.dsh/skills $_.Name; Copy-Item $_.FullName $dst -Recurse -Force } }"'
+#   'rsync -a --delete /home/sx/MyAI/dsh-extensions/skills/ ~/.dsh/skills/'
 # ]
 
 # ---------------------------------------------------------------------------
@@ -64,7 +75,13 @@ paths = [
 # 网络问题：先跳过，由调用方决定稍后重试
 [[fixes.rules]]
 match = "Could not resolve host|Failed to connect|open git-upload-pack|unable to access"
-hint = "网络暂时不可用，跳过；稍后可由用户触发重试"
+hint = "网络暂时不可用，跳过；稍后可由用户触发重试（可设代理 http://127.0.0.1:7897）"
+skip = true
+
+# pacman 同步失败（镜像/网络）：跳过，稍后重试或换镜像
+[[fixes.rules]]
+match = "failed to synchronize all databases"
+hint = "pacman 同步失败：通常是网络/镜像问题，跳过；稍后重试或 sudo pacman-mirrors -c China 换镜像"
 skip = true
 
 # 路径/仓库问题：需要人工确认
@@ -83,4 +100,16 @@ ask_user = true
 [[fixes.rules]]
 match = "cannot pull with rebase: You have unstaged changes|Your local changes would be overwritten|Please commit or stash them"
 hint = "仓库有本地未提交修改（可能是 WIP）：需要确认是 stash/commit 后重试，还是跳过本次更新（先看 git status）"
+ask_user = true
+
+# pacman 数据库锁残留：自动清锁重试（先确认没有 pacman 进程在跑，否则不动锁）
+[[fixes.rules]]
+match = "unable to lock database|database is locked|failed to init transaction"
+hint = "pacman 数据库锁残留：确认无 pacman/yay 进程运行后清锁重试"
+command = "if pgrep -x pacman >/dev/null || pgrep -f 'makepkg|yay' >/dev/null; then echo 'pacman/yay 仍在运行，跳过清锁'; exit 1; fi; sudo rm -f /var/lib/pacman/db.lck"
+
+# pacman keyring 过期（PGP 签名校验失败）：需要联网刷 keyring，让用户/AI 处理
+[[fixes.rules]]
+match = "invalid or corrupted package \\(PGP signature\\)|failed to commit transaction"
+hint = "pacman keyring 过期：sudo pacman -Sy archlinux-keyring 或 sudo pacman-key --refresh-keys 后重试（可能耗时/需网络）"
 ask_user = true
