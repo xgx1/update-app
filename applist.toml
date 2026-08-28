@@ -97,8 +97,9 @@ hint = "git 存在合并冲突，需要人工解决后重试"
 ask_user = true
 
 # 本地有未提交修改（开发中 WIP）：绝不能自动丢弃，停下询问
+# 覆盖 git 两种文案：rebase 拉取（cannot pull with rebase...）与 merge 拉取（would be overwritten by merge / Please commit...）
 [[fixes.rules]]
-match = "cannot pull with rebase: You have unstaged changes|Your local changes would be overwritten|Please commit or stash them"
+match = "cannot pull with rebase: You have unstaged changes|Your local changes (to the following files )?would be overwritten|Please commit (your changes )?or stash them"
 hint = "仓库有本地未提交修改（可能是 WIP）：需要确认是 stash/commit 后重试，还是跳过本次更新（先看 git status）"
 ask_user = true
 
