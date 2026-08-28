@@ -17,11 +17,20 @@ public static class ProcessRunner
         if (string.IsNullOrWhiteSpace(command))
             return new(-1, "命令为空");
 
-        var psi = NewPsi("cmd.exe", timeoutSeconds, workDir);
-        // 原样交给 cmd 解析（不加外层包装引号）：cmd 能正确处理命令内部的引号。
-        // 注意：自定义命令不要以引号开头（cmd 对首字符为引号的行有特殊剥离规则）。
-        psi.Arguments = "/d /c " + command;
-        return Exec(psi, timeoutSeconds, command);
+        if (OperatingSystem.IsWindows())
+        {
+            var psi = NewPsi("cmd.exe", timeoutSeconds, workDir);
+            // 原样交给 cmd 解析（不加外层包装引号）：cmd 能正确处理命令内部的引号。
+            // 注意：自定义命令不要以引号开头（cmd 对首字符为引号的行有特殊剥离规则）。
+            psi.Arguments = "/d /c " + command;
+            return Exec(psi, timeoutSeconds, command);
+        }
+
+        // Linux: sh -lc <command>，整个命令必须作为单个参数传入（sh 自行解析管道/重定向/&&/引号）
+        var sh = NewPsi("/bin/sh", timeoutSeconds, workDir);
+        sh.ArgumentList.Add("-lc");
+        sh.ArgumentList.Add(command);
+        return Exec(sh, timeoutSeconds, command);
     }
 
     public static ProcResult RunExe(string exe, IEnumerable<string> args, string? workDir = null, int timeoutSeconds = 900)

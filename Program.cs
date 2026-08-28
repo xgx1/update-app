@@ -264,7 +264,9 @@ public static class Cli
             return 1;
         }
 
-        var exe = Path.Combine(outDir, "update-app.exe");
+        // Windows 发布产物为 apphost: update-app.exe；Linux 无扩展名 apphost，统一记录 DLL 由 dotnet 宿主运行
+        var exeName = OperatingSystem.IsWindows() ? "update-app.exe" : "update-app.dll";
+        var exe = Path.Combine(outDir, exeName);
         if (!File.Exists(exe))
         {
             Console.Error.WriteLine($"[self] 发布产物缺失: {exe}\n输出: {pub.Output}");
@@ -273,7 +275,10 @@ public static class Cli
         File.WriteAllText(Path.Combine(binDir, "current.json"),
             System.Text.Json.JsonSerializer.Serialize(new { exe, publishedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"[self] 完成。当前版本: {exe}");
-        Console.WriteLine($"[self] 之后请运行: \"{exe}\" run --config \"{Path.GetFullPath(configPath)}\"");
+        var runHint = OperatingSystem.IsWindows()
+            ? $"\"{exe}\" run --config \"{Path.GetFullPath(configPath)}\""
+            : $"dotnet \"{exe}\" run --config \"{Path.GetFullPath(configPath)}\"";
+        Console.WriteLine($"[self] 之后请运行: {runHint}");
         return 0;
     }
 
@@ -340,18 +345,27 @@ public static class DotnetResolver
             if (ver is not null) candidates.Add((p, ver));
         }
 
-        var whereOut = ProcessRunner.Run("where dotnet", null, 60).Output;
-        T($"where dotnet => {whereOut.Replace("\n", " | ")}");
+        var whichCmd = OperatingSystem.IsWindows() ? "where dotnet" : "command -v dotnet";
+        var whereOut = ProcessRunner.Run(whichCmd, null, 60).Output;
+        T($"{whichCmd} => {whereOut.Replace("\n", " | ")}");
         foreach (var d in whereOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             Add(d);
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        foreach (var c in new[]
-                 {
-                     Path.Combine(home, "scoop", "apps", "dotnet-sdk", "current", "dotnet.exe"),
-                     Path.Combine(home, "scoop", "apps", "dotnet9-sdk", "current", "dotnet.exe"),
-                     @"C:\Program Files\dotnet\dotnet.exe",
-                 })
+        var probeCandidates = OperatingSystem.IsWindows()
+            ? new[]
+              {
+                  Path.Combine(home, "scoop", "apps", "dotnet-sdk", "current", "dotnet.exe"),
+                  Path.Combine(home, "scoop", "apps", "dotnet9-sdk", "current", "dotnet.exe"),
+                  @"C:\Program Files\dotnet\dotnet.exe",
+              }
+            : new[]
+              {
+                  Path.Combine(home, ".dotnet", "dotnet"),
+                  "/usr/bin/dotnet",
+                  "/usr/share/dotnet/dotnet",
+              };
+        foreach (var c in probeCandidates)
             Add(c);
 
         var best = candidates.OrderByDescending(c => c.Ver).FirstOrDefault();
