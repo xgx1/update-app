@@ -25,7 +25,7 @@ apps = []
 
 [[source.projects]]
 name = "update-app"
-path = "/home/sx/MyAI/update-app"
+path = "/home/sx/projects/MyAI/update-app"
 
 # 系统更新：pacman -Syu（sudo 本机免密可用）。path 只作为锚点目录（CLI 校验须存在）。
 # 注意：非交互环境 --noconfirm 跳过确认；想人工确认就在终端手动 sudo pacman -Syu
@@ -40,10 +40,24 @@ name = "yay AUR 更新"
 path = "/home/sx/.cache/yay"
 command = "yay -Sua --noconfirm"
 
+# ── 2026-09-12 纳入：工作区里其余「有上游」的源码仓库 ────────────────────────
+# 此前不在覆盖内，需人工 pull；纳入后一次 run 全覆盖。
+# 注意：/home/sx/projects/MyAI/{master,dev,update-app} 不加——
+# master/dev 是 DSH 自身的双实例检出（大版本升级要走「dev 先升→冒烟验证→master 快进」，
+# 见 ~/.dsh/skills/update-all「DSH harness 大版本升级」节，自动 pull 会打挂生产）；
+# update-app 自身无 upstream，pull 必失败。（dsh-extensions-dev 检出已于 2026-09-12 清理掉。）
+[[source.projects]]
+name = "rider-skills"
+path = "/home/sx/projects/MyAI/rider-skills"
+
+[[source.projects]]
+name = "dsh-context-compression-selector"
+path = "/home/sx/projects/MyAI/dsh-context-compression-selector"
+
 # deepseek-harness 源码（默认禁用，需要时取消注释并改 enabled = true）
 # [[source.projects]]
 # name = "deepseek-harness"
-# path = "/home/sx/MyAI/deepseek-harness"
+# path = "/home/sx/projects/MyAI/master"
 # enabled = false
 
 # ---------------------------------------------------------------------------
@@ -55,14 +69,35 @@ command = "yay -Sua --noconfirm"
 [[special.items]]
 name = "dsh 插件源码"
 paths = [
-  "/home/sx/MyAI/dsh-extensions",
+  "/home/sx/projects/MyAI/dsh-extensions",
+  # ── 2026-09-12 纳入：web profile 的 link: 运行中插件源码（均含上游，pull 安全）──
+  # ⚠️ pull 只刷新源码，不改运行时：这些插件加载的是各自 lib/ 或 dist/ 构建产物，
+  #    重建是刻意动作，且必须与 harness 版本匹配（如 dsh-genui 0.10.0 要求 harness ≥0.1.2-rc.1）。
+  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-genui",
+  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-toolkit",
+  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-drop-to-path",
 ]
+# 2026-09-12 复核：web profile 的 link 插件已全部受版本控制——
+# dsh-sidebar-taskbar / web-dsh-web-extension / dsh-task-manager 并入本项第一行的 dsh-extensions 仓库；
+# dsh-agent-teams 与 MemOS 已接上各自上游，见下方「第三方插件上游检测」项。
 # 默认对每个路径执行 git pull --ff-only；需要自定义时：
 # command = "git -C {path} pull --ff-only"
 # 示例：拉完 dsh-extensions 后把技能同步到 ~/.dsh/skills（按需启用；注意 dsh-extensions/skills 目前只有 dsh-extension-dev）
 # post_commands = [
-#   'rsync -a --delete /home/sx/MyAI/dsh-extensions/skills/ ~/.dsh/skills/'
+#   'rsync -a --delete /home/sx/projects/MyAI/dsh-extensions/skills/ ~/.dsh/skills/'
 # ]
+
+# 第三方插件：只做「上游有没有新提交」检测，不动工作区。
+# MemOS 的本地副本比上游 main 更新（2.0.19 vs 2.0.16-beta.1），dsh-agent-teams 本地是发布包形态，
+# 两者都有未提交的本地改动，自动 pull 会失败或覆盖，所以这里只 fetch + 报告差异；
+# 更新流程与风险见 /home/sx/projects/MyAI/docs/vendor-plugins.md。
+[[special.items]]
+name = "第三方插件上游检测（只 fetch，不改工作区）"
+paths = [
+  "/home/sx/projects/MyAI/_dsh_plugins_src/MemOS",
+  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-agent-teams",
+]
+command = "git -C {path} fetch -q origin main && n=$(git -C {path} rev-list --count HEAD..origin/main) && if [ \"$n\" = \"0\" ]; then echo '上游无新提交'; else echo \"上游有 $n 个新提交（需人工决定是否更新）：\"; git -C {path} log --oneline HEAD..origin/main | head -20; fi"
 
 # ---------------------------------------------------------------------------
 # 4. 已知问题自愈规则：失败输出命中 match（正则）后自动处理
