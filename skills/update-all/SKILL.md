@@ -11,7 +11,7 @@ description: 更新所有软件（源码项目 / Arch 系统与 AUR 软件包 / 
 
 ## 一句话架构
 
-**update-app** CLI（.NET 10，本机位于 `/home/sx/projects/update-app`）读取 `applist.toml`，
+**update-app** CLI（.NET 10，本机位于 `~/projects/update-app`）读取 `applist.toml`，
 执行三类更新并把逐项结果写成结构化 JSON；本技能负责：跑 CLI → 读日志 → 分类处理 →
 把新问题的解法固化成规则（下次 CLI 自己就能处理，不再需要 AI）。
 
@@ -28,16 +28,16 @@ description: 更新所有软件（源码项目 / Arch 系统与 AUR 软件包 / 
 
 ## 前置检查
 
-1. **配置文件**：`/home/sx/projects/update-app/applist.toml`（修改后请向用户确认再动）。
+1. **配置文件**：`~/projects/update-app/applist.toml`（修改后请向用户确认再动）。
    该文件**已全部改为 Arch 路径**（2026-09-13 复核：表内 8 条路径全部存在），不再是 Windows 迁移残留。
-2. **CLI 自举**：`/home/sx/projects/update-app/bin/current.json` 里的 `exe` 字段。
+2. **CLI 自举**：`~/projects/update-app/bin/current.json` 里的 `exe` 字段。
    - Arch 上 `exe` 指向的是 `update-app.dll`，运行方式为 `dotnet "<exe>" <命令>`（不是直接执行）。
    - 若 current.json 还是旧的 Windows `.exe` 路径（迁移残留），取 `bin/` 下最新时间戳目录里的 `update-app.dll`。
    - current.json 不存在或 dll 跑不动 → 按下方「自更新」重新发布一次。
 3. **环境要点（本机实测）**：
    - **两份 dotnet 都带 SDK**：`~/.dotnet/dotnet`（**10.0.400**，dotnet-install 装的）与 `/usr/bin/dotnet`（10.0.112，pacman 的 `dotnet-sdk`）。
      `DotnetResolver` 在「PATH + `~/.dotnet/dotnet` + `/usr/bin/dotnet` + `/usr/share/dotnet/dotnet`」里挑 **SDK 版本最高** 的，
-     所以落在 `~/.dotnet/dotnet`（`validate` 会显示 `[ok] dotnet: /home/sx/.dotnet/dotnet`）。
+     所以落在 `~/.dotnet/dotnet`（`validate` 会显示 `[ok] dotnet: ~/.dotnet/dotnet`）。
      手动 `dotnet build/publish` 也用 `~/.dotnet/dotnet`，免得与 CLI 自己选中的那份不一致。
      ⚠ 2026-09-13 更正：本节原写「`/usr/bin/dotnet` 只有 runtime 没有 SDK」——pacman 装上 `dotnet-sdk` 后该判断已不成立。
    - update-app 用 `/bin/sh -lc` 执行所有配置命令（非交互、非常规 bash）：自定义命令**不要依赖别名/函数/交互提示**；
@@ -60,7 +60,7 @@ command = "sudo pacman -Syu --noconfirm"
 
 [[source.projects]]
 name = "yay AUR 更新"
-path = "/home/sx/.cache/yay"
+path = "/var/cache/yay"
 command = "yay -Sua --noconfirm"
 ```
 
@@ -73,10 +73,10 @@ command = "yay -Sua --noconfirm"
 ### 1. 运行
 
 ```bash
-BIN=/home/sx/projects/update-app/bin
+BIN=~/projects/update-app/bin
 DLL=$(jq -r .exe $BIN/current.json 2>/dev/null | grep '\.dll$')
 [ -n "$DLL" ] || DLL=$(ls -1dt $BIN/2026*/ | head -1)update-app.dll
-dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后台运行
+dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运行
 ```
 
 常用子命令：`run`（执行）、`list`（看配置）、`validate`（校验路径/依赖）、`self`（自更新发布）；
@@ -84,7 +84,7 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 
 ### 2. 读日志分类
 
-结果在 `/home/sx/projects/update-app/logs/`：
+结果在 `~/projects/update-app/logs/`：
 - `latest.json` / `run-<时间戳>.json` —— 结构化摘要（`items[].status`）
 - `latest.log` / `run-<时间戳>.log` —— 人类可读日志
 
@@ -121,8 +121,8 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 ### 5. update-app 自身出问题
 
 - 现象：直接调 current.json 的 dll 报错/起不来；或 publish 失败。
-- 处理：更新它本身 —— `git -C /home/sx/projects/update-app pull`（有 remote 时），
-  修代码 bug，然后 `dotnet "$DLL" self --repo /home/sx/projects/update-app -c /home/sx/projects/update-app/applist.toml`
+- 处理：更新它本身 —— `git -C ~/projects/update-app pull`（有 remote 时），
+  修代码 bug，然后 `dotnet "$DLL" self --repo ~/projects/update-app -c ~/projects/update-app/applist.toml`
   重新发布（会写入新的 current.json：Arch 上 `exe` 字段为 `update-app.dll` 路径），再重跑全流程。
 - `self` 内部用 DotnetResolver 按「SDK 版本最高」自动选 dotnet（→ `~/.dotnet/dotnet` 10.0.400）；两份都没了才需重建，
   重建走 `sudo pacman -S dotnet-sdk`（extra 源）或用 dotnet-install 装回 `~/.dotnet`（后者版本更新，会被优先选中）。
@@ -169,8 +169,8 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 
 1. **升级源码**（旧进程在内存里继续跑，改文件本身不断线）：
    ```sh
-   git -C /home/sx/projects/MyAI/deepseek-harness fetch origin
-   git -C /home/sx/projects/MyAI/deepseek-harness merge origin/master
+   git -C ~/projects/MyAI/deepseek-harness fetch origin
+   git -C ~/projects/MyAI/deepseek-harness merge origin/master
    # 冲突多来自本地定制提交 vs 上游重构（README / agent 预设 / pnpm-lock）；逐个人工定，别整边取
    ```
    - **大版本跳变后必须先 `pnpm run clean` 再 build**：旧 `lib/` 混新源码会报
@@ -189,7 +189,7 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
    ln -s ~/.dsh/profiles/web/node_modules ./node_modules
    ln -s ~/.dsh/profiles/node_modules /tmp/dsh-verify/profiles/node_modules
    cp ~/.dsh/settings.yaml /tmp/dsh-verify/settings.yaml
-   cd /home/sx/projects/MyAI/deepseek-harness && source ~/.dsh/dsh-env.sh \
+   cd ~/projects/MyAI/deepseek-harness && source ~/.dsh/dsh-env.sh \
      && DSH_HOME=/tmp/dsh-verify node apps/cli/lib/bin.js web --port 3083 --no-open
    ```
    - 日志出现 `plugin tree failed to load: dsh: N entries did not activate` = 组合不兼容（下面第一条坑）。
@@ -200,8 +200,8 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 3. **重建**（重建不影响已加载的运行进程，只有重启才换代码；正式部署流程另见
    `deepseek-harness/.agents/skills/dsh-deploy-master`）：
    ```sh
-   pnpm -C /home/sx/projects/MyAI/deepseek-harness install --frozen-lockfile
-   pnpm -C /home/sx/projects/MyAI/deepseek-harness run clean && pnpm -C /home/sx/projects/MyAI/deepseek-harness run build
+   pnpm -C ~/projects/MyAI/deepseek-harness install --frozen-lockfile
+   pnpm -C ~/projects/MyAI/deepseek-harness run clean && pnpm -C ~/projects/MyAI/deepseek-harness run build
    ```
 4. **重启**：按第 7 步顺序（headroom-* → dsh-web），重启前先拿用户确认。
 
@@ -236,14 +236,14 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 | `invalid or corrupted package (PGP signature)` / `failed to commit transaction` | keyring 过期：`sudo pacman-key --refresh-keys` 或 `sudo pacman -Sy archlinux-keyring` 后重试 |
 | `target not found` / `failed to synchronize all databases (unable to lock database)` / 镜像问题 | 换镜像 `sudo pacman-mirrors -c China`（或编辑 /etc/pacman.d/mirrorlist），重试；AUR 包不存在则确认包名 |
 | `yay` 交互卡死超时 | 非 TTY 环境跑 `yay` 必须带 `--noconfirm`（与 ansible 无关的确认项会挂住）；要人工确认的在终端手动跑 |
-| 构建报 net10 不支持 / 「找不到带 SDK 的 dotnet」 | 用了个没 SDK 的 dotnet 入口。本机两份都带 SDK（`~/.dotnet/dotnet` 10.0.400 优先于 `/usr/bin/dotnet` 10.0.112）；`validate` 应显示 `[ok] dotnet: /home/sx/.dotnet/dotnet` |
+| 构建报 net10 不支持 / 「找不到带 SDK 的 dotnet」 | 用了个没 SDK 的 dotnet 入口。本机两份都带 SDK（`~/.dotnet/dotnet` 10.0.400 优先于 `/usr/bin/dotnet` 10.0.112）；`validate` 应显示 `[ok] dotnet: ~/.dotnet/dotnet` |
 | `[缺] scoop 不可用`（validate 警告） | 预期行为：Arch 无 scoop；保持 `[scoop] update_all=false, apps=[]`，警告不影响退出码 |
-| 配置里路径报「不存在」（C:/...） | applist.toml 还是 Windows 迁移残留：按「Arch 更新项模板」改为 `/home/sx/...` 路径（需用户确认后改） |
+| 配置里路径报「不存在」（C:/...） | applist.toml 还是 Windows 迁移残留：按「Arch 更新项模板」改为 `~/...` 路径（需用户确认后改） |
 | ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-drop-to-path}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）、`deepseek-harness/packages/client/ui-primitives`（DSH 自身）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
 | `plugin tree failed to load: dsh: N entries did not activate`（含 `pending (waiting for service: sandboxPolicy)`） | profile patch 把 `sandbox-policy` 关掉了：0.1.5 起必须挂载（见「DSH harness 大版本升级」节）。改 `~/.dsh/profiles/web/cordis.patch.yml` 注释掉该 disabled 行后重启 dsh-web |
 | 页面 `Failed to load plugins` + 控制台 `require("@deepseek-ai/dsh-client-…") missed the module table` | 自建客户端插件还在引用旧平台包：改 import 到现行 seed（`dsh-client-store` 等）并同步 tsdown `external`，`pnpm build` 后刷新页面 |
 | dsh-web 反复重启（`systemctl --user show dsh-web -p NRestarts` 很大） | 先看 `journalctl --user -u dsh-web -n 60`：多半是插件树 pending / patch 语法错误。**别让它在崩溃循环里放着**——每 3s 重试一次；修好 patch 再 `systemctl --user restart dsh-web` |
-| dsh-web 崩溃重启循环 + `Cannot find package '@deepseek-ai/…' imported from …/dsh-extensions/vendor/…`（`plugin tree failed to load`） | **自开发检出改名/移动过**：`dsh-extensions/vendor/*/node_modules` 里指向旧 worktree 的绝对符号链接悬空（2026-09-13 `master/`→`deepseek-harness/` 断 23 条）。修复：跑下方「vendor 悬空链接重指」→ `systemctl --user restart dsh-web`；applist.toml 已固化成 fixes.rule，下次命中自动修。预防：改名/移动后先重指、确认 `find /home/sx/projects/MyAI/dsh-extensions -xtype l` 为空再重启 |
+| dsh-web 崩溃重启循环 + `Cannot find package '@deepseek-ai/…' imported from …/dsh-extensions/vendor/…`（`plugin tree failed to load`） | **自开发检出改名/移动过**：`dsh-extensions/vendor/*/node_modules` 里指向旧 worktree 的绝对符号链接悬空（2026-09-13 `master/`→`deepseek-harness/` 断 23 条）。修复：跑下方「vendor 悬空链接重指」→ `systemctl --user restart dsh-web`；applist.toml 已固化成 fixes.rule，下次命中自动修。预防：改名/移动后先重指、确认 `find ~/projects/MyAI/dsh-extensions -xtype l` 为空再重启 |
 
 ### vendor 悬空链接重指（自开发检出改名/移动后的固定动作）
 
@@ -251,14 +251,14 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 当前 `deepseek-harness` checkout（幂等，可反复跑）：
 
 ```sh
-find /home/sx/projects/MyAI/dsh-extensions -xtype l -print0 |
+find ~/projects/MyAI/dsh-extensions -xtype l -print0 |
 while IFS= read -r -d "" l; do
   t=$(readlink "$l") || continue
   case "$t" in
-    /home/sx/projects/MyAI/*/*)
-      rest=${t#/home/sx/projects/MyAI/}; rest=${rest#*/}
-      [ -e "/home/sx/projects/MyAI/deepseek-harness/$rest" ] \
-        && ln -sfn "/home/sx/projects/MyAI/deepseek-harness/$rest" "$l" && echo "relinked: $l";;
+    ~/projects/MyAI/*/*)
+      rest=${t#~/projects/MyAI/}; rest=${rest#*/}
+      [ -e "~/projects/MyAI/deepseek-harness/$rest" ] \
+        && ln -sfn "~/projects/MyAI/deepseek-harness/$rest" "$l" && echo "relinked: $l";;
   esac
 done
 ```
@@ -266,7 +266,7 @@ done
 ⚠️ **别拿 `dsh --profile web --dump-config` 当唯一验收**（2026-09-13 实测踩到）：它只组合配置树、
 **不 import 插件模块**，悬空链接照过不误——当时输出 54 个条目、0 报错，看着完全正常，而故障
 只在**真正加载插件**那一刻（即 `dsh-web` 启动）才暴露。路径变更类的验收顺序固定为：
-① `find /home/sx/projects/MyAI/dsh-extensions -xtype l` 输出为空 → ② `dump-config` 组合成功 →
+① `find ~/projects/MyAI/dsh-extensions -xtype l` 输出为空 → ② `dump-config` 组合成功 →
 ③ 才 `systemctl --user restart dsh-web`。
 
 ## 固化原则（硬性要求）
@@ -286,7 +286,7 @@ done
 | 项 | Windows（旧） | Arch（本版） |
 |---|---|---|
 | 软件包管理 | scoop | pacman + yay（AUR） |
-| 路径 | `C:\Users\Admin\Project\Other\update-app` | `/home/sx/projects/update-app` |
+| 路径 | `~\Project\Other\update-app` | `~/projects/update-app` |
 | 运行 CLI | 直接执行 `update-app.exe` | `dotnet update-app.dll`（current.json 的 exe 是 dll 路径） |
 | 带 SDK 的 dotnet | scoop 的 dotnet-sdk | `~/.dotnet/dotnet`（10.0.400） |
 | 命令执行 shell | cmd.exe /d /c | /bin/sh -lc（ProcessRunner 已按平台分支，2026-08-28 适配） |
