@@ -42,10 +42,12 @@ command = "yay -Sua --noconfirm"
 
 # ── 2026-09-12 纳入：工作区里其余「有上游」的源码仓库 ────────────────────────
 # 此前不在覆盖内，需人工 pull；纳入后一次 run 全覆盖。
-# 注意：/home/sx/projects/MyAI/{master,dev,update-app} 不加——
-# master/dev 是 DSH 自身的双实例检出（大版本升级要走「dev 先升→冒烟验证→master 快进」，
-# 见 ~/.dsh/skills/update-all「DSH harness 大版本升级」节，自动 pull 会打挂生产）；
-# update-app 自身无 upstream，pull 必失败。（dsh-extensions-dev 检出已于 2026-09-12 清理掉。）
+# 注意：/home/sx/projects/MyAI/{deepseek-harness,update-app} 不加——
+# deepseek-harness（分支 master）是 DSH 自身的唯一检出、且就是生产实例（3080）本身，
+# 目录于 2026-09-13 由 master/ 改名而来、dev worktree/3081 同日下线；升级要走
+# 「源码升级→隔离冒烟验证→重建→用户确认后重启」，见 ~/.dsh/skills/update-all
+# 「DSH harness 大版本升级」节与 deepseek-harness/.agents/skills/dsh-deploy-master，
+# 自动 pull 会打挂生产；update-app 自身走 self 自更新、无 upstream，pull 必失败。
 [[source.projects]]
 name = "rider-skills"
 path = "/home/sx/projects/MyAI/dsh-extensions/vendor/rider-skills"
@@ -150,3 +152,15 @@ command = "if pgrep -x pacman >/dev/null || pgrep -f 'makepkg|yay' >/dev/null; t
 match = "invalid or corrupted package \\(PGP signature\\)|failed to commit transaction"
 hint = "pacman keyring 过期：sudo pacman -Sy archlinux-keyring 或 sudo pacman-key --refresh-keys 后重试（可能耗时/需网络）"
 ask_user = true
+
+# DSH vendor 插件依赖悬空（自开发检出改名/移动导致）：
+# 症状 = dsh-web 进 systemd 崩溃重启循环，日志有 `plugin tree failed to load` /
+# `Cannot find package '@deepseek-ai/...' imported from .../dsh-extensions/vendor/...`
+# （2026-09-13 master/ → deepseek-harness/ 改名后，vendor/dsh-toolkit 内 23 条绝对符号链接悬空，
+# 详见 docs/vendor-plugins.md「主检出改名后的 vendor 内链重指」）。
+# 修复：把 dsh-extensions 下悬空的绝对符号链接按剩余路径重指到当前 worktree，再重试一次。
+[[fixes.rules]]
+match = "plugin tree failed to load|Cannot find package '@deepseek-ai/.*imported from .*dsh-extensions"
+hint = "dsh-extensions/vendor 插件依赖悬空（自开发检出改名/移动过）：已重指到当前 deepseek-harness；重启 dsh-web.service 后生效"
+command = 'find /home/sx/projects/MyAI/dsh-extensions -xtype l -print0 | while IFS= read -r -d "" l; do t=$(readlink "$l") || continue; case "$t" in /home/sx/projects/MyAI/*/*) rest=${t#/home/sx/projects/MyAI/}; rest=${rest#*/}; [ -e "/home/sx/projects/MyAI/deepseek-harness/$rest" ] && ln -sfn "/home/sx/projects/MyAI/deepseek-harness/$rest" "$l" && echo "relinked: $l";; esac; done; true'
+retry = true
