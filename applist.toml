@@ -48,9 +48,10 @@ command = "yay -Sua --noconfirm"
 # 「源码升级→隔离冒烟验证→重建→用户确认后重启」，见 ~/.dsh/skills/update-all
 # 「DSH harness 大版本升级」节与 deepseek-harness/.agents/skills/dsh-deploy-master，
 # 自动 pull 会打挂生产；update-app 自身走 self 自更新、无 upstream，pull 必失败。
-[[source.projects]]
-name = "rider-skills"
-path = "/home/sx/projects/MyAI/dsh-extensions/vendor/rider-skills"
+# rider-skills：本地克隆已于 2026-09-13 删除（无运行时消费者——它的 6 个技能在
+# ~/.dsh/skills/ 里是改名副本，不经此仓库加载）。需要时重新 clone：
+#   git clone https://github.com/JetBrains/rider-skills \
+#     /home/sx/projects/MyAI/dsh-extensions/vendor/rider-skills
 
 # dsh-context-compression-selector：本地检出已不存在，生产改走 npm registry（0.1.0）。
 # 2026-09-13 移除此项——保留会让本项 pull 必然失败。
