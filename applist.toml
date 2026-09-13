@@ -78,7 +78,8 @@ paths = [
 ]
 # 2026-09-12 复核：web profile 的 link 插件已全部受版本控制——
 # dsh-sidebar-taskbar / web-dsh-web-extension / dsh-task-manager 并入本项第一行的 dsh-extensions 仓库；
-# dsh-agent-teams 与 MemOS 已接上各自上游，见下方「第三方插件上游检测」项。
+# 第三方克隆（dsh-genui / dsh-toolkit / dsh-drop-to-path）自 2026-09-13 起也在 dsh-extensions/vendor/ 下。
+# dsh-agent-teams 与 MemOS 曾接上各自上游，现均改 npm 交付（MemOS 更已彻底移除），不再需要本地源码。
 # 默认对每个路径执行 git pull --ff-only；需要自定义时：
 # command = "git -C {path} pull --ff-only"
 # 示例：拉完 dsh-extensions 后把技能同步到 ~/.dsh/skills（按需启用；注意 dsh-extensions/skills 目前只有 dsh-extension-dev）
@@ -89,7 +90,8 @@ paths = [
 # 第三方插件：只做「上游有没有新提交」检测，不动工作区。
 # 这些目录被生产以 link: 挂载，自动 pull 会直接改变生产插件行为，所以这里只 fetch + 报告差异；
 # 更新流程与风险见 /home/sx/projects/MyAI/docs/vendor-plugins.md。
-# 注：MemOS 与 dsh-agent-teams 已于 2026-09-13 改为 npm 交付并删除源码目录，不再参与检测。
+# 注：MemOS 与 dsh-agent-teams 已于 2026-09-13 改为 npm 交付并删除源码目录，不再参与检测；
+#     同日 MemOS 被用户判定不再需要，已从生产 profile 彻底移除（依赖/bundle/patch/数据目录全删）。
 [[special.items]]
 name = "第三方插件上游检测（只 fetch，不改工作区）"
 paths = [
