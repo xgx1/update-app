@@ -25,7 +25,7 @@ apps = []
 
 [[source.projects]]
 name = "update-app"
-path = "/home/sx/projects/MyAI/update-app"
+path = "/home/sx/projects/update-app"
 
 # 系统更新：pacman -Syu（sudo 本机免密可用）。path 只作为锚点目录（CLI 校验须存在）。
 # 注意：非交互环境 --noconfirm 跳过确认；想人工确认就在终端手动 sudo pacman -Syu
