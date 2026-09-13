@@ -91,7 +91,8 @@ paths = [
 
 # 第三方插件：只做「上游有没有新提交」检测，不动工作区。
 # 这些目录被生产以 link: 挂载，自动 pull 会直接改变生产插件行为，所以这里只 fetch + 报告差异；
-# 更新流程与风险见 /home/sx/projects/MyAI/docs/vendor-plugins.md。
+# 更新流程：权威是 `~/.dsh/profiles/web/package.json` 的 link: 目标——先读它确认现在是哪几个路径，
+# 再决定 pull 还是重建（不维护单独的清单文档，避免与现实漂移）。
 # 注：MemOS 与 dsh-agent-teams 已于 2026-09-13 改为 npm 交付并删除源码目录，不再参与检测；
 #     同日 MemOS 被用户判定不再需要，已从生产 profile 彻底移除（依赖/bundle/patch/数据目录全删）。
 [[special.items]]
@@ -156,8 +157,8 @@ ask_user = true
 # DSH vendor 插件依赖悬空（自开发检出改名/移动导致）：
 # 症状 = dsh-web 进 systemd 崩溃重启循环，日志有 `plugin tree failed to load` /
 # `Cannot find package '@deepseek-ai/...' imported from .../dsh-extensions/vendor/...`
-# （2026-09-13 master/ → deepseek-harness/ 改名后，vendor/dsh-toolkit 内 23 条绝对符号链接悬空，
-# 详见 docs/vendor-plugins.md「主检出改名后的 vendor 内链重指」）。
+# （2026-09-13 master/ → deepseek-harness/ 改名后，vendor/dsh-toolkit 内 23 条绝对符号链接悬空）。
+# 预防与完整处置见技能 update-all「vendor 悬空链接重指」节。
 # 修复：把 dsh-extensions 下悬空的绝对符号链接按剩余路径重指到当前 worktree，再重试一次。
 [[fixes.rules]]
 match = "plugin tree failed to load|Cannot find package '@deepseek-ai/.*imported from .*dsh-extensions"
