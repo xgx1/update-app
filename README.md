@@ -2,6 +2,20 @@
 
 .NET 10 命令行应用：读取 `applist.toml`，批量更新本机软件。
 
+## 仓库构成：一个功能的两半
+
+| 半边 | 位置 | 作用 |
+|---|---|---|
+| **CLI** | 仓库根（`Program.cs` / `Runner.cs` / `AppConfig.cs` …） | 读 `applist.toml`，执行更新、应用自愈规则、写 `logs/` |
+| **技能** | `skills/update-all/SKILL.md` | 让 Agent 会用这个 CLI：读日志、判断失败、需要拍板时停下问你，把新解法固化进 `[fixes.rules]` |
+
+技能通过 `dsh-extensions/install-skill.sh` **软链**到运行时 `~/.dsh/skills/update-all`
+（该脚本同时管 `dsh-extensions/skills/`，幂等）。**不要往 `~/.dsh/skills/` 放副本**——
+副本会与仓库漂移，此前就出现过运行时那份还在教一个已被删除的仓库。
+
+> 本仓库原先位于 `MyAI/update-app`，2026-09-13 迁到 `~/projects/update-app` 独立成仓。
+> `applist.toml` 里那条自更新项（`name = "update-app"`）已同步改为新路径。
+
 ## 更新三类内容
 
 | 类别 | 说明 | 默认动作 |
@@ -36,13 +50,19 @@ update-app self           # 自更新：git pull 自身源码 + dotnet publish �
 ```
 
 - 默认配置文件 `./applist.toml`，可用 `-c <path>` 指定（日志/发布产物均相对于配置文件所在目录）。
-- `self` 解析「带 SDK 的 dotnet」：优先 PATH，其次 scoop 的 `dotnet-sdk`（.NET 10）/ `dotnet9-sdk`，最后 `C:\Program Files\dotnet`。
+- `self` 解析「带 SDK 的 dotnet」：在 PATH 与几个常见安装位置里挑 **SDK 版本最高** 的那个（本机选中 `~/.dotnet/dotnet`，详见「构建」节）。
 - 退出码：`0` 全部成功/已修复；`1` 存在失败或需确认项；`2` 参数/配置错误。
 
 ## 构建
 
-```powershell
-& C:\Users\Admin\scoop\apps\dotnet-sdk\current\dotnet.exe build -c Release
+```sh
+~/.dotnet/dotnet build -c Release
 ```
 
 依赖：Tomlyn（TOML 解析）。
+
+- `bin/`、`obj/`、`logs/` 均不入库（见 `.gitignore`）；`self` 会把发布产物写到 `bin/<时间戳>/` 并更新 `bin/current.json`。
+- **用哪份 dotnet**：`DotnetResolver` 在「PATH + `~/.dotnet/dotnet` + `/usr/bin/dotnet` + `/usr/share/dotnet/dotnet`」
+  里挑 **SDK 版本最高**的一个。本机是 `~/.dotnet/dotnet`（SDK **10.0.400**）胜过 `/usr/bin/dotnet`（SDK 10.0.112）。
+  手动构建同理用 `~/.dotnet/dotnet`，避免与 CLI 自己选中的那份不一致。
+  查看解析结果：`dotnet <dll> validate` 会打印 `[ok] dotnet: …`。

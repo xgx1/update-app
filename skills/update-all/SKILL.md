@@ -29,15 +29,17 @@ description: 更新所有软件（源码项目 / Arch 系统与 AUR 软件包 / 
 ## 前置检查
 
 1. **配置文件**：`/home/sx/projects/update-app/applist.toml`（修改后请向用户确认再动）。
-   注意：该文件目前仍是 Windows 路径（`C:/Users/Admin/...`），首次在本机使用前需按「Arch 更新项模板」改造。
+   该文件**已全部改为 Arch 路径**（2026-09-13 复核：表内 8 条路径全部存在），不再是 Windows 迁移残留。
 2. **CLI 自举**：`/home/sx/projects/update-app/bin/current.json` 里的 `exe` 字段。
    - Arch 上 `exe` 指向的是 `update-app.dll`，运行方式为 `dotnet "<exe>" <命令>`（不是直接执行）。
    - 若 current.json 还是旧的 Windows `.exe` 路径（迁移残留），取 `bin/` 下最新时间戳目录里的 `update-app.dll`。
    - current.json 不存在或 dll 跑不动 → 按下方「自更新」重新发布一次。
 3. **环境要点（本机实测）**：
-   - `/usr/bin/dotnet` 只有 runtime（10.0.11）**没有 SDK**；带 SDK 的是 `~/.dotnet/dotnet`（10.0.400，dotnet-install 装的）。
-     构建 / `self` 发布 / NuGet 解析时用它；update-app 内部会自动解析到它（`validate` 会显示 `[ok] dotnet: /home/sx/.dotnet/dotnet`），
-     但你自己手动 `dotnet build/publish` 时务必用 `~/.dotnet/dotnet` 而不是 `/usr/bin/dotnet`。
+   - **两份 dotnet 都带 SDK**：`~/.dotnet/dotnet`（**10.0.400**，dotnet-install 装的）与 `/usr/bin/dotnet`（10.0.112，pacman 的 `dotnet-sdk`）。
+     `DotnetResolver` 在「PATH + `~/.dotnet/dotnet` + `/usr/bin/dotnet` + `/usr/share/dotnet/dotnet`」里挑 **SDK 版本最高** 的，
+     所以落在 `~/.dotnet/dotnet`（`validate` 会显示 `[ok] dotnet: /home/sx/.dotnet/dotnet`）。
+     手动 `dotnet build/publish` 也用 `~/.dotnet/dotnet`，免得与 CLI 自己选中的那份不一致。
+     ⚠ 2026-09-13 更正：本节原写「`/usr/bin/dotnet` 只有 runtime 没有 SDK」——pacman 装上 `dotnet-sdk` 后该判断已不成立。
    - update-app 用 `/bin/sh -lc` 执行所有配置命令（非交互、非常规 bash）：自定义命令**不要依赖别名/函数/交互提示**；
      `yay` 交互式确认在无 TTY 下会挂住直到超时 → 走 CLI 必须 `--noconfirm`，否则在终端手动跑。
    - 代理：clash-verge（mihomo）默认监听 `127.0.0.1:7897`；测连通用 `curl -x http://127.0.0.1:7897 -sI https://api.nuget.org` 之类。
@@ -122,8 +124,8 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 - 处理：更新它本身 —— `git -C /home/sx/projects/update-app pull`（有 remote 时），
   修代码 bug，然后 `dotnet "$DLL" self --repo /home/sx/projects/update-app -c /home/sx/projects/update-app/applist.toml`
   重新发布（会写入新的 current.json：Arch 上 `exe` 字段为 `update-app.dll` 路径），再重跑全流程。
-- `self` 内部用 DotnetResolver 自动找带 SDK 的 dotnet（→ `~/.dotnet/dotnet`）；若把 SDK 卸了，
-  先 `sudo pacman -S dotnet-sdk`（extra 源，10.0.11；`~/.dotnet` 用 dotnet-install 装的也可重建）。
+- `self` 内部用 DotnetResolver 按「SDK 版本最高」自动选 dotnet（→ `~/.dotnet/dotnet` 10.0.400）；两份都没了才需重建，
+  重建走 `sudo pacman -S dotnet-sdk`（extra 源）或用 dotnet-install 装回 `~/.dotnet`（后者版本更新，会被优先选中）。
 - update-app 的 bug 修复记得 commit（有 remote 则 push）。
 
 ### 6. 汇总报告
@@ -234,7 +236,7 @@ dotnet "$DLL" run --config /home/sx/projects/update-app/applist.toml   # 可后�
 | `invalid or corrupted package (PGP signature)` / `failed to commit transaction` | keyring 过期：`sudo pacman-key --refresh-keys` 或 `sudo pacman -Sy archlinux-keyring` 后重试 |
 | `target not found` / `failed to synchronize all databases (unable to lock database)` / 镜像问题 | 换镜像 `sudo pacman-mirrors -c China`（或编辑 /etc/pacman.d/mirrorlist），重试；AUR 包不存在则确认包名 |
 | `yay` 交互卡死超时 | 非 TTY 环境跑 `yay` 必须带 `--noconfirm`（与 ansible 无关的确认项会挂住）；要人工确认的在终端手动跑 |
-| 构建报 net10 不支持 / 「找不到带 SDK 的 dotnet」 | 用了 `/usr/bin/dotnet`（runtime-only）：改用 `~/.dotnet/dotnet`；`validate` 应显示 `[ok] dotnet: /home/sx/.dotnet/dotnet` |
+| 构建报 net10 不支持 / 「找不到带 SDK 的 dotnet」 | 用了个没 SDK 的 dotnet 入口。本机两份都带 SDK（`~/.dotnet/dotnet` 10.0.400 优先于 `/usr/bin/dotnet` 10.0.112）；`validate` 应显示 `[ok] dotnet: /home/sx/.dotnet/dotnet` |
 | `[缺] scoop 不可用`（validate 警告） | 预期行为：Arch 无 scoop；保持 `[scoop] update_all=false, apps=[]`，警告不影响退出码 |
 | 配置里路径报「不存在」（C:/...） | applist.toml 还是 Windows 迁移残留：按「Arch 更新项模板」改为 `/home/sx/...` 路径（需用户确认后改） |
 | ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-drop-to-path}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）、`deepseek-harness/packages/client/ui-primitives`（DSH 自身）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
