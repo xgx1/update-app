@@ -57,7 +57,7 @@ path = "/home/sx/projects/MyAI/dsh-context-compression-selector"
 # deepseek-harness 源码（默认禁用，需要时取消注释并改 enabled = true）
 # [[source.projects]]
 # name = "deepseek-harness"
-# path = "/home/sx/projects/MyAI/master"
+# path = "/home/sx/projects/MyAI/deepseek-harness"
 # enabled = false
 
 # ---------------------------------------------------------------------------
