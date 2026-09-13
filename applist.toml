@@ -48,11 +48,10 @@ command = "yay -Sua --noconfirm"
 # update-app 自身无 upstream，pull 必失败。（dsh-extensions-dev 检出已于 2026-09-12 清理掉。）
 [[source.projects]]
 name = "rider-skills"
-path = "/home/sx/projects/MyAI/rider-skills"
+path = "/home/sx/projects/MyAI/dsh-extensions/vendor/rider-skills"
 
-[[source.projects]]
-name = "dsh-context-compression-selector"
-path = "/home/sx/projects/MyAI/dsh-context-compression-selector"
+# dsh-context-compression-selector：本地检出已不存在，生产改走 npm registry（0.1.0）。
+# 2026-09-13 移除此项——保留会让本项 pull 必然失败。
 
 # deepseek-harness 源码（默认禁用，需要时取消注释并改 enabled = true）
 # [[source.projects]]
@@ -73,9 +72,9 @@ paths = [
   # ── 2026-09-12 纳入：web profile 的 link: 运行中插件源码（均含上游，pull 安全）──
   # ⚠️ pull 只刷新源码，不改运行时：这些插件加载的是各自 lib/ 或 dist/ 构建产物，
   #    重建是刻意动作，且必须与 harness 版本匹配（如 dsh-genui 0.10.0 要求 harness ≥0.1.2-rc.1）。
-  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-genui",
-  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-toolkit",
-  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-drop-to-path",
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-genui",
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-toolkit",
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-drop-to-path",
 ]
 # 2026-09-12 复核：web profile 的 link 插件已全部受版本控制——
 # dsh-sidebar-taskbar / web-dsh-web-extension / dsh-task-manager 并入本项第一行的 dsh-extensions 仓库；
@@ -94,9 +93,9 @@ paths = [
 [[special.items]]
 name = "第三方插件上游检测（只 fetch，不改工作区）"
 paths = [
-  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-genui",
-  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-toolkit",
-  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-drop-to-path",
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-genui",
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-toolkit",
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-drop-to-path",
 ]
 command = "git -C {path} fetch -q origin main && n=$(git -C {path} rev-list --count HEAD..origin/main) && if [ \"$n\" = \"0\" ]; then echo '上游无新提交'; else echo \"上游有 $n 个新提交（需人工决定是否更新）：\"; git -C {path} log --oneline HEAD..origin/main | head -20; fi"
 
