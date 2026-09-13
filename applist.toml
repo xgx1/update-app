@@ -88,14 +88,15 @@ paths = [
 # ]
 
 # 第三方插件：只做「上游有没有新提交」检测，不动工作区。
-# MemOS 的本地副本比上游 main 更新（2.0.19 vs 2.0.16-beta.1），dsh-agent-teams 本地是发布包形态，
-# 两者都有未提交的本地改动，自动 pull 会失败或覆盖，所以这里只 fetch + 报告差异；
+# 这些目录被生产以 link: 挂载，自动 pull 会直接改变生产插件行为，所以这里只 fetch + 报告差异；
 # 更新流程与风险见 /home/sx/projects/MyAI/docs/vendor-plugins.md。
+# 注：MemOS 与 dsh-agent-teams 已于 2026-09-13 改为 npm 交付并删除源码目录，不再参与检测。
 [[special.items]]
 name = "第三方插件上游检测（只 fetch，不改工作区）"
 paths = [
-  "/home/sx/projects/MyAI/_dsh_plugins_src/MemOS",
-  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-agent-teams",
+  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-genui",
+  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-toolkit",
+  "/home/sx/projects/MyAI/_dsh_plugins_src/dsh-drop-to-path",
 ]
 command = "git -C {path} fetch -q origin main && n=$(git -C {path} rev-list --count HEAD..origin/main) && if [ \"$n\" = \"0\" ]; then echo '上游无新提交'; else echo \"上游有 $n 个新提交（需人工决定是否更新）：\"; git -C {path} log --oneline HEAD..origin/main | head -20; fi"
 
