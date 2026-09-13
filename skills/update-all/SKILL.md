@@ -144,28 +144,54 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
 服务在 `~/.config/systemd/user/`：`dsh-web.service`、`headroom-deepseek.service`、
 `headroom-scnet.service`、`headroom-siliconflow.service`。
 
-顺序（重要：**dsh-web 最后重启**，它一重启当前对话就断线，属于正常现象）：
+顺序固定为「先撤走不受影响的 → 再发报告 → **最后才排程延时重启**」：
 
-1. **先重启除 dsh-web 外的所有服务**并确认 active：
+1. **先重启除 dsh-web 外的所有服务**并确认 active（这一步不影响当前对话）：
    ```bash
    systemctl --user restart headroom-deepseek.service headroom-scnet.service headroom-siliconflow.service
    systemctl --user is-active headroom-deepseek.service headroom-scnet.service headroom-siliconflow.service
    ```
-2. **最后重启 dsh-web**：`systemctl --user restart dsh-web.service`
-   - dsh-web 就是 DeepSeek harness 本体：重启瞬间当前对话会断线，页面随后自动恢复；
-     新代码/新配置（更新后的插件、卸载的 MCP 等）这时才真正生效。
-   - 重启前必须先完成：第 6 步汇总报告完整发出 + 用户确认同意重启（断线后 AI 无法再做任何事，
-     一切后续动作都必须在重启前完成）。
-3. 恢复后验证：页面能正常打开、`systemctl --user is-active dsh-web.service` 为 active；
-   若发现插件功能缺失或启动报错，重点检查 `~/.dsh/profiles/web/package.json` 的 `link:` 依赖
-   路径是否有效（见「已知问题速查」里 `link:` 依赖那一行）。
+2. **再输出第 6 步汇总报告**——报告里必须写明：重启**已排程**、延迟多少秒、怎么取消、页面会
+   自动恢复。
+3. **最后排程 dsh-web 延时重启**（`<N>` 见下方选值）：
+   ```bash
+   systemd-run --user --collect --on-active=<N> --unit=dsh-restart-once \
+     systemctl --user restart dsh-web.service
+   ```
 
+**为什么必须延时而不是同步重启**：`systemctl --user restart dsh-web.service` 是同步阻塞的，
+执行的那一刻就把当前会话（含正在跑这条命令的 agent）一起杀掉——报告还没发出去就断线了。
+`--on-active=<N>` 把重启交给一个**独立于本进程**的定时单元，延迟窗口内本进程照常工作。
+
+**顺序是硬要求**：排程返回后，本流程**只剩一句话可说了**（即本轮最终回复）。重启后排程它的
+agent 已经不存在，无法再补发任何内容。所以「报告完整发出 → 排程 → 结束本轮」是唯一安全顺序，
+**排程后不要再发新一轮工具调用**（每个调用都在消耗延迟窗口）。
+
+**`<N>` 怎么选**：给「排程返回 → 最终回复说完」留出余量。常规汇总报 **10** 秒足够；只有极短
+的确认语时 5 秒也可以。别给 3 秒——长报告可能说到一半就被切断。
+
+**排程后仍可取消**（实测可行，`--collect` 不影响取消）：
+```bash
+systemctl --user stop dsh-restart-once.timer
+```
+这是本设计在"自动"与"可控"之间的平衡点：默认自动重启，用户在延迟窗口内仍能反悔一次。
+
+4. **恢复后验证**（需要用户/下一个会话执行，agent 已随重启消失）：页面刷新后能正常打开、
+   `systemctl --user is-active dsh-web.service` 为 active；若发现插件功能缺失或启动报错，
+   重点检查 `~/.dsh/profiles/web/package.json` 的 `link:` 依赖路径是否有效
+   （见「已知问题速查」里 `link:` 依赖那一行）。
+
+- **本机不支持 `systemd-run` 时**：放弃延时，改为报告完整发出后同步执行
+  `systemctl --user restart dsh-web.service`，并告知用户会立即断线（这属于预期，不需要用户确认）。
+- **页面没自动恢复**：手动刷新该页；若仍打不开，检查 `systemctl --user is-active dsh-web.service`。
+- **万一没拦住**（`stop` 晚了一步，服务已被重启）：页面恢复后立刻 `systemctl --user stop
+  dsh-restart-once.timer`，并 `systemctl --user reset-failed dsh-restart-once` 清理单元残留。
 - 若 `systemctl --user` 报 `Failed to connect to bus`，先 `export XDG_RUNTIME_DIR=/run/user/$(id -u)`。
 
 ## DSH harness 大版本升级（0.1.x → 0.1.y；0.1.1-rc.2 → 0.1.5-rc.2 实证）
 
 源码型项目里的 `deepseek-harness`（分支 `master`）在 applist.toml 中默认禁用；它**就是生产实例（3080）的代码**，
-大版本跨越不能只 `git pull`（dev worktree/3081 已于 2026-09-13 下线），按「源码升级 → 隔离冒烟验证 → 重建 → 用户确认后重启」走：
+大版本跨越不能只 `git pull`（dev worktree/3081 已于 2026-09-13 下线），按「源码升级 → 隔离冒烟验证 → 重建 → 报告后延时重启」走：
 
 1. **升级源码**（旧进程在内存里继续跑，改文件本身不断线）：
    ```sh
@@ -203,7 +229,8 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
    pnpm -C ~/projects/MyAI/deepseek-harness install --frozen-lockfile
    pnpm -C ~/projects/MyAI/deepseek-harness run clean && pnpm -C ~/projects/MyAI/deepseek-harness run build
    ```
-4. **重启**：按第 7 步顺序（headroom-* → dsh-web），重启前先拿用户确认。
+4. **重启**：按第 7 步顺序（headroom-* → 报告 → 排程延时重启 dsh-web），用「报告 → 排程」而非
+   同步重启，让升级报告完整留在会话里。
 
 ### 0.1.5 起的硬性坑（均已实证）
 
@@ -242,8 +269,8 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
 | ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-drop-to-path}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）、`deepseek-harness/packages/client/ui-primitives`（DSH 自身）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
 | `plugin tree failed to load: dsh: N entries did not activate`（含 `pending (waiting for service: sandboxPolicy)`） | profile patch 把 `sandbox-policy` 关掉了：0.1.5 起必须挂载（见「DSH harness 大版本升级」节）。改 `~/.dsh/profiles/web/cordis.patch.yml` 注释掉该 disabled 行后重启 dsh-web |
 | 页面 `Failed to load plugins` + 控制台 `require("@deepseek-ai/dsh-client-…") missed the module table` | 自建客户端插件还在引用旧平台包：改 import 到现行 seed（`dsh-client-store` 等）并同步 tsdown `external`，`pnpm build` 后刷新页面 |
-| dsh-web 反复重启（`systemctl --user show dsh-web -p NRestarts` 很大） | 先看 `journalctl --user -u dsh-web -n 60`：多半是插件树 pending / patch 语法错误。**别让它在崩溃循环里放着**——每 3s 重试一次；修好 patch 再 `systemctl --user restart dsh-web` |
-| dsh-web 崩溃重启循环 + `Cannot find package '@deepseek-ai/…' imported from …/dsh-extensions/vendor/…`（`plugin tree failed to load`） | **自开发检出改名/移动过**：`dsh-extensions/vendor/*/node_modules` 里指向旧 worktree 的绝对符号链接悬空（2026-09-13 `master/`→`deepseek-harness/` 断 23 条）。修复：跑下方「vendor 悬空链接重指」→ `systemctl --user restart dsh-web`；applist.toml 已固化成 fixes.rule，下次命中自动修。预防：改名/移动后先重指、确认 `find ~/projects/MyAI/dsh-extensions -xtype l` 为空再重启 |
+| dsh-web 反复重启（`systemctl --user show dsh-web -p NRestarts` 很大） | 先看 `journalctl --user -u dsh-web -n 60`：多半是插件树 pending / patch 语法错误。**别让它在崩溃循环里放着**——每 3s 重试一次；修好 patch 后按第 7 步排程延时重启（先说明修了什么，再让重启发生） |
+| dsh-web 崩溃重启循环 + `Cannot find package '@deepseek-ai/…' imported from …/dsh-extensions/vendor/…`（`plugin tree failed to load`） | **自开发检出改名/移动过**：`dsh-extensions/vendor/*/node_modules` 里指向旧 worktree 的绝对符号链接悬空（2026-09-13 `master/`→`deepseek-harness/` 断 23 条）。修复：跑下方「vendor 悬空链接重指」→ 再按第 7 步排程延时重启 dsh-web；applist.toml 已固化成 fixes.rule，下次命中自动修。预防：改名/移动后先重指、确认 `find ~/projects/MyAI/dsh-extensions -xtype l` 为空再重启 |
 
 ### vendor 悬空链接重指（自开发检出改名/移动后的固定动作）
 
@@ -267,7 +294,7 @@ done
 **不 import 插件模块**，悬空链接照过不误——当时输出 54 个条目、0 报错，看着完全正常，而故障
 只在**真正加载插件**那一刻（即 `dsh-web` 启动）才暴露。路径变更类的验收顺序固定为：
 ① `find ~/projects/MyAI/dsh-extensions -xtype l` 输出为空 → ② `dump-config` 组合成功 →
-③ 才 `systemctl --user restart dsh-web`。
+③ 才按第 7 步排程 dsh-web 延时重启（报告先发，避免修复说明被同步重启一起杀掉）。
 
 ## 固化原则（硬性要求）
 
