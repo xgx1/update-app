@@ -141,15 +141,27 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
 不要求重启系统**（内核等系统级更新后是否重启系统，由用户另行择机决定，与本次收尾无关）。
 
 本机 DSH（dsh-web / headroom 代理）由 **systemd 用户服务**托管（不是 PM2），
-服务在 `~/.config/systemd/user/`：`dsh-web.service`、`headroom-deepseek.service`、
-`headroom-scnet.service`、`headroom-siliconflow.service`。
+服务在 `~/.config/systemd/user/`：`dsh-web.service`、`headroom-deepseek.service`（就这两个）。
+2026-09-18 核实：`headroom-scnet.service`（:8789）与 `headroom-siliconflow.service`、
+:8790 的 modelscope 实例**都已不存在**——SCNet 套餐额度耗尽（HTTP 429 `Token Plan quota has
+been exceeded`）后连同代理一起清掉了。语音输入（vinput）现在直接走 `headroom-deepseek`
+的 :8787，链路与排障见技能 `fcitx-voice-input`。
 
-顺序固定为「先撤走不受影响的 → 再发报告 → **最后才排程延时重启**」：
+顺序固定为「先体检 → 先撤走不受影响的 → 再发报告 → **最后才排程延时重启**」：
 
-1. **先重启除 dsh-web 外的所有服务**并确认 active（这一步不影响当前对话）：
+0. **先做一次缺库体检**（pacman 常出现「新依赖先装上、依赖它的包还没重建」，服务会在下次
+   启动时炸在 `error while loading shared libraries`；详见下方「更新后缺库体检」）：
    ```bash
-   systemctl --user restart headroom-deepseek.service headroom-scnet.service headroom-siliconflow.service
-   systemctl --user is-active headroom-deepseek.service headroom-scnet.service headroom-siliconflow.service
+   systemctl --user --failed --no-pager          # 先看有没有服务在崩
+   for f in /usr/bin/vinput-daemon /usr/bin/headroom ~/.local/bin/headroom; do
+     [ -e "$f" ] && { ldd "$f" 2>/dev/null | grep 'not found' && echo "^^ 缺库: $f"; }
+   done
+   ```
+   有缺库就按「更新后缺库体检」节处置（只装重建版，**不要 `pacman -Sy`**）。
+1. **再重启除 dsh-web 外的所有服务**并确认 active（这一步不影响当前对话）：
+   ```bash
+   systemctl --user restart headroom-deepseek.service
+   systemctl --user is-active headroom-deepseek.service
    ```
 2. **再输出第 6 步汇总报告**——报告里必须写明：重启**已排程**、延迟多少秒、怎么取消、页面会
    自动恢复。
@@ -266,11 +278,67 @@ systemctl --user stop dsh-restart-once.timer
 | 构建报 net10 不支持 / 「找不到带 SDK 的 dotnet」 | 用了个没 SDK 的 dotnet 入口。本机两份都带 SDK（`~/.dotnet/dotnet` 10.0.400 优先于 `/usr/bin/dotnet` 10.0.112）；`validate` 应显示 `[ok] dotnet: ~/.dotnet/dotnet` |
 | `[缺] scoop 不可用`（validate 警告） | 预期行为：Arch 无 scoop；保持 `[scoop] update_all=false, apps=[]`，警告不影响退出码 |
 | 配置里路径报「不存在」（C:/...） | applist.toml 还是 Windows 迁移残留：按「Arch 更新项模板」改为 `~/...` 路径（需用户确认后改） |
+| 服务启动即崩：journal 里 `error while loading shared libraries: libXXX.so.N` + `status=127` | 系统升级把某个依赖的 **SONAME 换代**了（2026-09-18 实例：protobuf 36.0→36.1，`libprotobuf-lite.so.36.0.0` 消失，`vinput-daemon` 连崩三次；真正缺库的是**传递依赖** `libonnxruntime.so.1`，归属包 `onnxruntime-cpu` 当时还没重建）→ 按下方「更新后缺库体检」处置 |
 | ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-drop-to-path}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）、`deepseek-harness/packages/client/ui-primitives`（DSH 自身）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
 | `plugin tree failed to load: dsh: N entries did not activate`（含 `pending (waiting for service: sandboxPolicy)`） | profile patch 把 `sandbox-policy` 关掉了：0.1.5 起必须挂载（见「DSH harness 大版本升级」节）。改 `~/.dsh/profiles/web/cordis.patch.yml` 注释掉该 disabled 行后重启 dsh-web |
 | 页面 `Failed to load plugins` + 控制台 `require("@deepseek-ai/dsh-client-…") missed the module table` | 自建客户端插件还在引用旧平台包：改 import 到现行 seed（`dsh-client-store` 等）并同步 tsdown `external`，`pnpm build` 后刷新页面 |
 | dsh-web 反复重启（`systemctl --user show dsh-web -p NRestarts` 很大） | 先看 `journalctl --user -u dsh-web -n 60`：多半是插件树 pending / patch 语法错误。**别让它在崩溃循环里放着**——每 3s 重试一次；修好 patch 后按第 7 步排程延时重启（先说明修了什么，再让重启发生） |
 | dsh-web 崩溃重启循环 + `Cannot find package '@deepseek-ai/…' imported from …/dsh-extensions/vendor/…`（`plugin tree failed to load`） | **自开发检出改名/移动过**：`dsh-extensions/vendor/*/node_modules` 里指向旧 worktree 的绝对符号链接悬空（2026-09-13 `master/`→`deepseek-harness/` 断 23 条）。修复：跑下方「vendor 悬空链接重指」→ 再按第 7 步排程延时重启 dsh-web；applist.toml 已固化成 fixes.rule，下次命中自动修。预防：改名/移动后先重指、确认 `find ~/projects/MyAI/dsh-extensions -xtype l` 为空再重启 |
+
+### 更新后缺库体检（SONAME 换代类故障）
+
+**症状**：某个 systemd 服务/程序在升级后启动即崩，journal 里是
+`error while loading shared libraries: libXXX.so.N: cannot open shared object file`
+（`status=127`）。原因不是包损坏，而是 **Arch 升级了某个库并换了 SONAME**，而依赖它的包
+（常是 AUR / archlinuxcn 的包，或当时仓库还没重建的包）还链着旧名字。**这类故障不会出现在
+update-app 的失败清单里**——升级本身是成功的，炸的是下次启动。
+
+**定位三步**（以 2026-09-18 的 vinput 为例，实测有效）：
+
+```bash
+# 1) 谁缺库（注意：缺的常常不是直接被依赖的那层，而是传递依赖）
+ldd /usr/bin/vinput-daemon | grep 'not found'          # → libprotobuf-lite.so.36.0.0 => not found
+# 2) 在一度依赖里找「谁还在要旧 SONAME」
+ldd /usr/bin/vinput-daemon | awk '/=>/ {print $3}' | while read -r p; do
+  [ -f "$p" ] && readelf -d "$p" 2>/dev/null | grep -q 'libprotobuf-lite.so.36.0.0' && echo "要旧 SONAME: $p"
+done                                                     # → /usr/lib/libonnxruntime.so.1
+# 3) 找归属包 & 本地版本
+pacman -Qo /usr/lib/libonnxruntime.so.1                  # → onnxruntime-cpu 1.29.0-2
+```
+
+**修复**：装该包的**重建版**，且**只装这一个包**（`pacman -U` 单包升级，绝不用 `pacman -Sy`
+——那会造成部分升级，把问题扩大）：
+
+```bash
+# ① 读仓库最新索引（写到 /tmp，不碰本地 pacman 数据库）
+curl -sL -o /tmp/extra.db.tar.gz https://geo.mirror.pkgbuild.com/extra/os/x86_64/extra.db.tar.gz
+mkdir -p /tmp/extra && tar -xzf /tmp/extra.db.tar.gz -C /tmp/extra
+grep -A1 -E '^%(VERSION|BUILDDATE|FILENAME)%' /tmp/extra/onnxruntime-cpu-*/desc   # 看有没有 pkgrel+1 的重建版
+# ② 下载 → 验 SHA256 → 单包升级
+curl -sL -o /tmp/pkg.tar.zst https://geo.mirror.pkgbuild.com/extra/os/x86_64/onnxruntime-cpu-1.29.0-3-x86_64.pkg.tar.zst
+grep -A1 '^%SHA256SUM%' /tmp/extra/onnxruntime-cpu-1.29.0-3/desc | tail -1          # 与 sha256sum 结果比对
+sudo pacman -U --noconfirm /tmp/pkg.tar.zst
+# ③ 复验：缺库消失 + 服务能起
+ldd /usr/bin/vinput-daemon | grep 'not found' || echo "OK"
+systemctl --user restart vinput-daemon && systemctl --user is-active vinput-daemon
+```
+
+archlinuxcn 的包同理，把索引换成 `https://repo.archlinuxcn.org/x86_64/archlinuxcn.db.tar.gz`、
+镜像目录换成 `https://repo.archlinuxcn.org/x86_64/` 即可（`fcitx5-vinput`、`sherpa-onnx` 都在这里）。
+**判断重建版够不够新**：比较它的 `%BUILDDATE%` 是否晚于肇事库的升级时间（`grep <库名> /var/log/pacman.log | tail`）。
+
+**全盘扫描（可选，注意噪音）**：
+
+```bash
+for f in /usr/bin/* /usr/lib/*.so /usr/lib/*.so.*; do
+  [ -f "$f" ] || continue
+  ldd "$f" 2>/dev/null | grep -q 'not found' && echo "缺库: $f → $(ldd "$f" 2>/dev/null | grep 'not found' | head -2 | tr '\n' ' ')"
+done
+```
+
+本机基线里本来就有约 20 条噪音（`libQt5*.so.5`、`libclang*.so.22.1`、`libgd.so.3` 之类——
+**可选依赖从未安装**，不是故障）。判断标准是「本次升级后**新出现**的条目」，或直接盯自己要用的
+那几个二进制（`/usr/bin/vinput-daemon`、`~/.local/bin/headroom`、`/usr/bin/fcitx5`…）。
 
 ### vendor 悬空链接重指（自开发检出改名/移动后的固定动作）
 
