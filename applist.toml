@@ -74,14 +74,17 @@ paths = [
   "/home/sx/projects/MyAI/dsh-extensions",
   # ── 2026-09-12 纳入：web profile 的 link: 运行中插件源码（均含上游，pull 安全）──
   # ⚠️ pull 只刷新源码，不改运行时：这些插件加载的是各自 lib/ 或 dist/ 构建产物，
-  #    重建是刻意动作，且必须与 harness 版本匹配（如 dsh-genui 0.10.0 要求 harness ≥0.1.2-rc.1）。
+  #    重建是刻意动作，且必须与 harness 版本匹配（如 dsh-genui 0.11.1-preview.2 要求 harness ≥0.1.6-alpha.1）。
   "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-genui",
   "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-toolkit",
-  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-drop-to-path",
+  # 2026-09-20 纳入：dsh-evolve-modes（web profile 新挂的 link: 插件，0.4.0）。
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-evolve-modes",
 ]
 # 2026-09-12 复核：web profile 的 link 插件已全部受版本控制——
 # dsh-sidebar-taskbar / web-dsh-web-extension / dsh-task-manager 并入本项第一行的 dsh-extensions 仓库；
-# 第三方克隆（dsh-genui / dsh-toolkit / dsh-drop-to-path）自 2026-09-13 起也在 dsh-extensions/vendor/ 下。
+# 第三方克隆自 2026-09-13 起也在 dsh-extensions/vendor/ 下。
+# 2026-09-20 修正：移除 dsh-drop-to-path（本地已删除、非 submodule、profile 无引用，保留只会每次 run 假失败）；
+#                   加入 dsh-evolve-modes。清单权威仍是 ~/.dsh/profiles/web/package.json 的 link: 目标。
 # dsh-agent-teams 与 MemOS 曾接上各自上游，现均改 npm 交付（MemOS 更已彻底移除），不再需要本地源码。
 # 默认对每个路径执行 git pull --ff-only；需要自定义时：
 # command = "git -C {path} pull --ff-only"
@@ -101,7 +104,7 @@ name = "第三方插件上游检测（只 fetch，不改工作区）"
 paths = [
   "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-genui",
   "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-toolkit",
-  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-drop-to-path",
+  "/home/sx/projects/MyAI/dsh-extensions/vendor/dsh-evolve-modes",
 ]
 command = "git -C {path} fetch -q origin main && n=$(git -C {path} rev-list --count HEAD..origin/main) && if [ \"$n\" = \"0\" ]; then echo '上游无新提交'; else echo \"上游有 $n 个新提交（需人工决定是否更新）：\"; git -C {path} log --oneline HEAD..origin/main | head -20; fi"
 
@@ -128,6 +131,14 @@ skip = true
 [[fixes.rules]]
 match = "fatal: not a git repository"
 hint = "该目录不是 git 仓库（或路径不对/未 git init），需要人工确认路径"
+ask_user = true
+
+# 配置漂移：applist.toml 里配的路径已不存在（插件被移除/改名/迁走）。
+# 2026-09-20 固化：此前这类只报「未命中已知修复规则」→ failed，需要 AI 介入；
+# 现在降级为 needs_input，由技能把漂移事实摆给用户拍板（实例：dsh-drop-to-path 已删）。
+[[fixes.rules]]
+match = "路径不存在"
+hint = "配置里的路径已不存在（配置漂移）：核对插件/仓库是否被移除或改名，然后更新 applist.toml 的路径列表（权威是 ~/.dsh/profiles/*/package.json 的 link: 目标）"
 ask_user = true
 
 # git 合并冲突：需要人工解决

@@ -262,6 +262,30 @@ systemctl --user stop dsh-restart-once.timer
   dsh-web-ui 与 relink 脚本均已删除。现在 web profile 只剩 `link:` 源码插件（第三方克隆在
   `dsh-extensions/vendor/`，自研在 `dsh-extensions/plugins/`）与 npm 包两条路，按各自方式升级即可。
 
+## link: 插件源码更新后的重建（pull ≠ 生效）
+
+`[special.items]` 里那些 `link:` 插件的 `git pull` **只改源码**——运行时加载的是各仓库自己的
+`lib/`（或 `dist/`）构建产物，不重建就还是旧版（2026-09-20 实证：dsh-genui 从 0.10 拉到
+0.11.1-preview.2、上游 ~60 个文件，而 `lib/client.js` 仍是 9月12日 的旧产物，体积 258KB → 重建后 560KB）。
+
+判据：`ls -la <插件>/lib` 的时间戳是否早于本次 `git pull`；或 `package.json` 版本已变而产物没变。
+
+重建（用插件自己的脚本，别手写 tsc/tsdown）：
+
+```sh
+cd ~/projects/MyAI/dsh-extensions/vendor/<插件>
+pnpm install --frozen-lockfile   # 上游 lock 变了就必须先装
+pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc && tsdown；evolve-modes=tsdown+归一化产物
+```
+
+- **先核对 peer/engines 与 harness 版本兼容**再重建：`jq -r .peerDependencies package.json` 与
+  `dsh --version`（2026-09-20：genui 允许 `^0.1.6-alpha.1`，本机 harness `0.1.6-alpha.2` → 兼容）。
+- 成群重建时按仓库顺序来（`pnpm install` 会动各自 `node_modules`），别并行。
+- 重建**不影响已加载的运行进程**，只有 dsh-web 重启后才生效 → 归入第 7 步的延时重启一起做，
+  并在报告里说明「重建了什么、重启后生效」。
+- `dsh-evolve-modes` 这类自研/自有 fork 若是**本地提交领先上游**（`git status -sb` 显示 `[领先 N]`），
+  `git pull` 不动它，`fetch` 检测会报「上游无新提交」——指针与推送按 AGENTS.md 的 submodule 规矩单独处理。
+
 ## 本机已知问题速查（Arch）
 
 | 日志特征（match） | 处理 |
@@ -278,8 +302,9 @@ systemctl --user stop dsh-restart-once.timer
 | 构建报 net10 不支持 / 「找不到带 SDK 的 dotnet」 | 用了个没 SDK 的 dotnet 入口。本机两份都带 SDK（`~/.dotnet/dotnet` 10.0.400 优先于 `/usr/bin/dotnet` 10.0.112）；`validate` 应显示 `[ok] dotnet: ~/.dotnet/dotnet` |
 | `[缺] scoop 不可用`（validate 警告） | 预期行为：Arch 无 scoop；保持 `[scoop] update_all=false, apps=[]`，警告不影响退出码 |
 | 配置里路径报「不存在」（C:/...） | applist.toml 还是 Windows 迁移残留：按「Arch 更新项模板」改为 `~/...` 路径（需用户确认后改） |
+| 配置里路径报「不存在」（`~/...` 路径，2026-09-20 起） | **配置漂移**：该插件/仓库已被删除或改名。已固化成 fixes.rule → `needs_input`，把漂移事实摆给用户拍板后改 applist.toml（权威是 `~/.dsh/profiles/*/package.json` 的 `link:` 目标）。实例：`dsh-drop-to-path` 被移除、`vendor/dsh-evolve-modes` 新挂 |
 | 服务启动即崩：journal 里 `error while loading shared libraries: libXXX.so.N` + `status=127` | 系统升级把某个依赖的 **SONAME 换代**了（2026-09-18 实例：protobuf 36.0→36.1，`libprotobuf-lite.so.36.0.0` 消失，`vinput-daemon` 连崩三次；真正缺库的是**传递依赖** `libonnxruntime.so.1`，归属包 `onnxruntime-cpu` 当时还没重建）→ 按下方「更新后缺库体检」处置 |
-| ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-drop-to-path}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）、`deepseek-harness/packages/client/ui-primitives`（DSH 自身）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
+| ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是（2026-09-20 核对）：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-evolve-modes}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入；`dsh-drop-to-path` 同日已删）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**⚠️ pull 只是刷新源码**：这类插件加载的是各仓库自己的 `lib/`/`dist/` 构建产物，`git pull` 后不 `pnpm build` 则运行行为仍是旧版（2026-09-20 dsh-genui 0.10→0.11.1-preview.2 实测：lib/client.js 还是 9月12日 的旧产物）。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`、`vendor/dsh-drop-to-path`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
 | `plugin tree failed to load: dsh: N entries did not activate`（含 `pending (waiting for service: sandboxPolicy)`） | profile patch 把 `sandbox-policy` 关掉了：0.1.5 起必须挂载（见「DSH harness 大版本升级」节）。改 `~/.dsh/profiles/web/cordis.patch.yml` 注释掉该 disabled 行后重启 dsh-web |
 | 页面 `Failed to load plugins` + 控制台 `require("@deepseek-ai/dsh-client-…") missed the module table` | 自建客户端插件还在引用旧平台包：改 import 到现行 seed（`dsh-client-store` 等）并同步 tsdown `external`，`pnpm build` 后刷新页面 |
 | dsh-web 反复重启（`systemctl --user show dsh-web -p NRestarts` 很大） | 先看 `journalctl --user -u dsh-web -n 60`：多半是插件树 pending / patch 语法错误。**别让它在崩溃循环里放着**——每 3s 重试一次；修好 patch 后按第 7 步排程延时重启（先说明修了什么，再让重启发生） |
