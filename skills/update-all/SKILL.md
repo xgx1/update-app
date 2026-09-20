@@ -195,7 +195,12 @@ systemctl --user stop dsh-restart-once.timer
 
 - **本机不支持 `systemd-run` 时**：放弃延时，改为报告完整发出后同步执行
   `systemctl --user restart dsh-web.service`，并告知用户会立即断线（这属于预期，不需要用户确认）。
-- **页面没自动恢复**：手动刷新该页；若仍打不开，检查 `systemctl --user is-active dsh-web.service`。
+- **页面没自动恢复 / token 已换（2026-09-20 实测）**：`?token=` **每次启动都是新发的、且一次性**——
+  token 换成功后写入 cookie，再拿同一个 `?token=` URL 重复请求会 401（不是服务坏）。
+  重启后取新地址：`journalctl --user -u dsh-web -n 20 --no-pager | grep -oE 'token=[^ ]+' | tail -1`。
+  判活要带 cookie jar，否则永远 401：
+  `curl -sL -c /tmp/j -b /tmp/j -o /tmp/p.html -w "%{http_code}" "http://127.0.0.1:3080/?token=<新token>"` → 期望 `200` 且 HTML 里出现 `data-plugin="..."`（插件树注入成功的标志）。
+  若 `200` 但仍打不开，检查 `systemctl --user is-active dsh-web.service`。
 - **万一没拦住**（`stop` 晚了一步，服务已被重启）：页面恢复后立刻 `systemctl --user stop
   dsh-restart-once.timer`，并 `systemctl --user reset-failed dsh-restart-once` 清理单元残留。
 - 若 `systemctl --user` 报 `Failed to connect to bus`，先 `export XDG_RUNTIME_DIR=/run/user/$(id -u)`。
