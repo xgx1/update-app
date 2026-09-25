@@ -40,6 +40,25 @@ name = "yay AUR 更新"
 path = "/home/sx/.cache/yay"
 command = "yay -Sua --noconfirm"
 
+# ── 2026-09-26 纳入：uv 工具（pacman/yay 都管不到，只能走 uv tool upgrade）────
+# 这两个都是本机常驻组件，此前不在覆盖内 → 长期只能手动更新（本次发现已落后：0.10.8→0.11.0、0.37.0→0.38.0）：
+#   codebase-memory-mcp：cbm 知识图谱 MCP 的引擎（常驻 daemon + UI :9749）
+#   headroom-ai：DSH 的模型代理，headroom-*.service 跑的就是它（:8787/:8788/:8789）
+# ⚠️ codebase-memory-mcp 自带的 `update` 子命令对 uv/pip 安装的副本无效
+#    （原样回一句 "This PyPI copy is maintained by pip"），必须用 uv tool upgrade。
+# ⚠️ CBM 引擎换代后常驻 daemon 还握着旧 inode，必须连带重启 codebase-memory.service
+#    （AGENTS.md 红线）；headroom 的重启刻意不放在这里——DSH 自身的模型流量就走 :8787，
+#    在 run 内重启会把正在跑的会话打断，统一留到 update-all 收尾步骤做。
+[[source.projects]]
+name = "codebase-memory-mcp (uv tool)"
+path = "/home/sx/.local/share/uv/tools/codebase-memory-mcp"
+command = "/home/sx/.local/bin/uv tool upgrade codebase-memory-mcp && systemctl --user restart codebase-memory.service"
+
+[[source.projects]]
+name = "headroom-ai (uv tool)"
+path = "/home/sx/.local/share/uv/tools/headroom-ai"
+command = "/home/sx/.local/bin/uv tool upgrade headroom-ai"
+
 # ── 2026-09-12 纳入：工作区里其余「有上游」的源码仓库 ────────────────────────
 # 此前不在覆盖内，需人工 pull；纳入后一次 run 全覆盖。
 # 注意：/home/sx/projects/MyAI/{deepseek-harness,update-app} 不加——
@@ -177,3 +196,17 @@ match = "plugin tree failed to load|Cannot find package '@deepseek-ai/.*imported
 hint = "dsh-extensions/vendor 插件依赖悬空（自开发检出改名/移动过）：已重指到当前 deepseek-harness；重启 dsh-web.service 后生效"
 command = 'find /home/sx/projects/MyAI/dsh-extensions -xtype l -print0 | while IFS= read -r -d "" l; do t=$(readlink "$l") || continue; case "$t" in /home/sx/projects/MyAI/*/*) rest=${t#/home/sx/projects/MyAI/}; rest=${rest#*/}; [ -e "/home/sx/projects/MyAI/deepseek-harness/$rest" ] && ln -sfn "/home/sx/projects/MyAI/deepseek-harness/$rest" "$l" && echo "relinked: $l";; esac; done; true'
 retry = true
+
+# AUR 包装领先上游：PKGBUILD 指向的 release 资产还不存在（下载 404）。
+# 2026-09-26 实例（本次唯一失败项）：cua-driver-bin 0.29.0 的 source URL
+#   .../releases/download/cua-driver-rs-v0.29.0/cua-driver-rs-0.29.0-linux-x86_64-binary.tar.gz
+# 返回 404。核实结论：上游 trycua/cua 有 cua-driver-rs-v0.29.0 这个 tag，但**没有对应 release
+# 对象/资产**（GitHub API releases/tags 返回 Not Found；有资产的最新稳定版是 cua-driver-rs-v0.28.3），
+# 即 AUR 维护者先改了 pkgver、上游资产还没发出来（AUR 最后修改就在发版当天）。
+# 本地无可修：yay 每次都会重新下载 PKGBUILD，改 ~/.cache/yay 里的副本不持久，
+# 也不该为此把包塞进 IgnorePkg（那会长期钉死版本）。→ 命中即跳过，保留已装版本；
+# 上游补发资产后下载成功，规则自然不再命中，无需人工清理。
+[[fixes.rules]]
+match = "无法下载 https://github\\.com/trycua/cua/releases/download/cua-driver-rs-v|releases/download/cua-driver-rs-v[0-9.]+/cua-driver-rs-[0-9.]+-linux-x86_64-binary\\.tar\\.gz"
+hint = "cua-driver-bin 的 PKGBUILD 领先上游（该版本 release 资产尚未发布，404）：本次保留已装版本，等上游发版后重跑即可自动恢复"
+skip = true
