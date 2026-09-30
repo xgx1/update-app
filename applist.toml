@@ -61,12 +61,16 @@ command = "/home/sx/.local/bin/uv tool upgrade headroom-ai"
 
 # ── 2026-09-12 纳入：工作区里其余「有上游」的源码仓库 ────────────────────────
 # 此前不在覆盖内，需人工 pull；纳入后一次 run 全覆盖。
-# 注意：/home/sx/projects/MyAI/{deepseek-harness,update-app} 不加——
-# deepseek-harness（分支 master）是 DSH 自身的唯一检出、且就是生产实例（3080）本身，
-# 目录于 2026-09-13 由 master/ 改名而来、dev worktree/3081 同日下线；升级要走
-# 「源码升级→隔离冒烟验证→重建→用户确认后重启」，见 ~/.dsh/skills/update-all
-# 「DSH harness 大版本升级」节与 deepseek-harness/.agents/skills/dsh-deploy-master，
-# 自动 pull 会打挂生产；update-app 自身走 self 自更新、无 upstream，pull 必失败。
+# 注意：/home/sx/projects/MyAI/{deepseek-harness,deepseek-harness-dev,update-app} 不加——
+# deepseek-harness（分支 master）是 DSH 自身的生产检出、就是生产实例（3080）本身，
+# 目录于 2026-09-13 由 master/ 改名而来；升级要走「源码升级→隔离冒烟验证→重建→用户确认后
+# 重启」，见 ~/.dsh/skills/update-all「DSH harness 大版本升级」节与
+# deepseek-harness/.agents/skills/dsh-deploy-master，自动 pull 会打挂生产。
+# deepseek-harness-dev（分支 dev）是 2026-09-27 重新上线的开发 worktree（由
+# dsh-web-dev.service 跑在 :3081、DSH_HOME=~/.dsh-dev），它是开发中的工作区，
+# 自动 pull 会打断正在进行的开发 → 同样不纳入，需要时手动 pull。
+# （这两条 2026-09-30 更正：此前注释写「dev worktree/3081 已于 2026-09-13 下线」，已过时。）
+# update-app 自身走 self 自更新、无 upstream，pull 必失败。
 # rider-skills：本地克隆已于 2026-09-13 删除（无运行时消费者——它的 6 个技能在
 # ~/.dsh/skills/ 里是改名副本，不经此仓库加载）。需要时重新 clone：
 #   git clone https://github.com/JetBrains/rider-skills \
@@ -104,6 +108,15 @@ paths = [
 # 第三方克隆自 2026-09-13 起也在 dsh-extensions/vendor/ 下。
 # 2026-09-20 修正：移除 dsh-drop-to-path（本地已删除、非 submodule、profile 无引用，保留只会每次 run 假失败）；
 #                   加入 dsh-evolve-modes。清单权威仍是 ~/.dsh/profiles/web/package.json 的 link: 目标。
+# 2026-09-30 复核（两个 profile 的 link: 全量）：生产 web 的 7 条是
+#   vendor/{dsh-genui,dsh-toolkit,dsh-evolve-modes} + plugins/{dsh-llm-retry-schedule,
+#   dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}；dev（~/.dsh-dev）另加
+#   plugins/dsh-laya-router（Laya 逐轮模型路由）。**它们全在 dsh-extensions 仓库内**，
+#   所以本项第一条路径已经覆盖——新增插件不必再往下面的 paths 里加。
+# ⚠️ submodule 收尾（2026-09-30 固化）：vendor/ 下三个是 submodule，fast-forward 后父仓库会
+#   出现 `M vendor/dsh-genui` 这类脏指针，**会挡住下一次 git pull --ff-only**（报
+#   "Your local changes … would be overwritten"，命中 WIP 规则降级成 needs_input）。
+#   每次 run 后按 AGENTS.md 的 submodule 规矩在 dsh-extensions 里补一条指针提交即可。
 # dsh-agent-teams 与 MemOS 曾接上各自上游，现均改 npm 交付（MemOS 更已彻底移除），不再需要本地源码。
 # 默认对每个路径执行 git pull --ff-only；需要自定义时：
 # command = "git -C {path} pull --ff-only"
