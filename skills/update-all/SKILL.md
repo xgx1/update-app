@@ -140,12 +140,23 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
 拍板处理完、整体确认 OK 之后，才做这一步。**本流程只重启 DSH 相关 systemd 用户服务，
 不要求重启系统**（内核等系统级更新后是否重启系统，由用户另行择机决定，与本次收尾无关）。
 
-本机 DSH（dsh-web / headroom 代理）由 **systemd 用户服务**托管（不是 PM2），
-服务在 `~/.config/systemd/user/`：`dsh-web.service`、`headroom-deepseek.service`（就这两个）。
-2026-09-18 核实：`headroom-scnet.service`（:8789）与 `headroom-siliconflow.service`、
-:8790 的 modelscope 实例**都已不存在**——SCNet 套餐额度耗尽（HTTP 429 `Token Plan quota has
-been exceeded`）后连同代理一起清掉了。语音输入（vinput）现在直接走 `headroom-deepseek`
-的 :8787，链路与排障见技能 `fcitx-voice-input`。
+本机 DSH 由 **systemd 用户服务**托管（不是 PM2），服务在 `~/.config/systemd/user/`。
+2026-09-30 实测清单（旧版只写「dsh-web + headroom-deepseek 两个」，已漂移，**别照抄旧清单**）：
+
+| 单元 | 端口 | 说明 |
+|---|---|---|
+| `dsh-web.service` | :3080 | 生产页面（**当前对话就在这里**）→ 只能延时重启 |
+| `dsh-web-dev.service` | :3081 | dev worktree 实例（`DSH_HOME=~/.dsh-dev`），2026-09-27 起重新上线 |
+| `headroom-deepseek.service` | :8787 | **DSH 默认模型的流量就走这里**（`settings.yaml` 的 `baseURL`）→ 见下方重启注意 |
+| `headroom-sensenova.service` | :8788 | SenseNova token-plan 代理 |
+| `headroom-step.service` | :8789 | StepFun Step Plan 代理 |
+| `laya-sidecar.service` | :8083 | 本地 Laya 决策模型（ROCm，约 7.8s 起，`/health` 应 200） |
+| `codebase-memory.service` | :9749 | cbm 知识图谱 daemon（applist 的 uv 项自带重启它） |
+
+已不存在：`headroom-scnet.service`、`headroom-siliconflow.service`、`:8790` 的 modelscope 实例
+（SCNet 额度耗尽 HTTP 429 `Token Plan quota has been exceeded` 后连同代理一起清掉）。
+语音输入（vinput）走 `headroom-deepseek` 的 :8787，链路与排障见技能 `fcitx-voice-input`。
+核实命令：`systemctl --user list-units --type=service --state=running`。
 
 顺序固定为「先体检 → 先撤走不受影响的 → 再发报告 → **最后才排程延时重启**」：
 
@@ -153,16 +164,28 @@ been exceeded`）后连同代理一起清掉了。语音输入（vinput）现在
    启动时炸在 `error while loading shared libraries`；详见下方「更新后缺库体检」）：
    ```bash
    systemctl --user --failed --no-pager          # 先看有没有服务在崩
-   for f in /usr/bin/vinput-daemon /usr/bin/headroom ~/.local/bin/headroom; do
+   for f in /usr/bin/vinput-daemon /usr/bin/headroom ~/.local/bin/headroom \
+            ~/.local/bin/codebase-memory-mcp ~/.dotnet/tools/find-work; do
      [ -e "$f" ] && { ldd "$f" 2>/dev/null | grep 'not found' && echo "^^ 缺库: $f"; }
    done
    ```
+   （`~/.local/bin/python3`/venv 类入口自己带解释器，盯上面的 ELF 入口就够；2026-09-30 全绿。）
    有缺库就按「更新后缺库体检」节处置（只装重建版，**不要 `pacman -Sy`**）。
-1. **再重启除 dsh-web 外的所有服务**并确认 active（这一步不影响当前对话）：
+1. **再重启除 dsh-web 外的所有服务**并确认 active（不影响当前对话）：
    ```bash
-   systemctl --user restart headroom-deepseek.service
-   systemctl --user is-active headroom-deepseek.service
+   systemctl --user restart headroom-sensenova.service headroom-step.service laya-sidecar.service
+   systemctl --user restart dsh-web-dev.service          # 先看 :3081 有无活跃连接（ss -tnp | grep :3081）
+   systemctl --user restart headroom-deepseek.service    # ⚠ 见下，必须与健康检查同一条调用
+   for u in headroom-deepseek headroom-sensenova headroom-step laya-sidecar dsh-web-dev; do
+     printf '%-22s %s\n' "$u" "$(systemctl --user is-active $u.service)"; done
+   curl -s http://127.0.0.1:8787/health | jq -c '{version,status,ready}'
    ```
+   - **`:8787` 是本轮对话自己的模型通道**（`settings.yaml` 里 `agent-default-model.baseURL`），
+     重启它会短暂切断模型请求。安全做法：把 `restart` 与「轮询 `/health` 直到就绪」放在**同一条
+     阻塞的 bash 调用**里——bash 阻塞期间不会发出新的模型请求，等它恢复再继续，本轮就不会被打断。
+     别把 restart 单独拆成一次调用、返回后再由模型决定下一步（下一个请求可能正好落在重启窗口里）。
+     单元是 `Restart=on-failure`，起不来会自动重试；2026-09-30 实测 0.39.1 约 3s 就绪、本轮存活。
+   - 升级 headroom 后按下方「headroom 手工冒烟」先验二进制，再动生产服务。
 2. **再输出第 6 步汇总报告**——报告里必须写明：重启**已排程**、延迟多少秒、怎么取消、页面会
    自动恢复。
 3. **最后排程 dsh-web 延时重启**（`<N>` 见下方选值）：
@@ -203,12 +226,39 @@ systemctl --user stop dsh-restart-once.timer
   若 `200` 但仍打不开，检查 `systemctl --user is-active dsh-web.service`。
 - **万一没拦住**（`stop` 晚了一步，服务已被重启）：页面恢复后立刻 `systemctl --user stop
   dsh-restart-once.timer`，并 `systemctl --user reset-failed dsh-restart-once` 清理单元残留。
+
+### headroom 手工冒烟（uv 升级后、重启生产前）
+
+`headroom-ai` 走 uv 升级后，先在没有流量的端口上验一遍新二进制，再动生产服务：
+
+```bash
+cd /tmp && env -i HOME="$HOME" PATH="$HOME/.local/bin:/usr/bin:/bin" LANG=C.UTF-8 \
+  HEADROOM_PORT=8791 HEADROOM_HOST=127.0.0.1 HEADROOM_MODE=cache \
+  HEADROOM_SAVINGS_PROFILE=coding OPENAI_TARGET_API_URL=https://api.deepseek.com \
+  timeout 20 setsid ~/.local/bin/headroom proxy > /tmp/headroom-smoke.log 2>&1 < /dev/null &
+sleep 4; curl -s http://127.0.0.1:8791/health | jq -c '{version,status,ready}'
+```
+
+⚠️ **必须在干净环境里跑（`env -i`）**：DSH 的 bash 会话自带
+`all_proxy=socks5://127.0.0.1:7897` 与 `no_proxy=localhost,127.0.0.1,::1,[::1]`，headroom 0.39.1
+会分别炸在 `ImportError: Using SOCKS proxy, but the 'socksio' package is not installed` 与
+`httpx.InvalidURL: Invalid port: ':1]'`。**这是测试环境的锅，不是二进制坏**——systemd 单元自己
+清了 `ALL_PROXY`/`HTTP(S)_PROXY`，而 `NO_PROXY` 因 systemd 不继承根本传不进去。
+2026-09-30 第一次冒烟就被这两个坑误判成「新版起不来」，用 `env -i` 复刻单元环境后 4s 就 healthy。
+
+⚠️ **别用 `pkill -f '<含端口/环境变量名的字符串>'` 收尾**：`-f` 匹配整条命令行，
+会连带匹配到你**自己这条 bash 调用**并把当前 shell 杀掉（2026-09-30 实测踩到两次，
+表现为输出戛然而止 + `[killed by signal: SIGTERM]`）。用 `timeout <N> setsid …` 让它自杀，
+或按端口号从 `ss -tlnp` 里取 pid 再 kill。
 - 若 `systemctl --user` 报 `Failed to connect to bus`，先 `export XDG_RUNTIME_DIR=/run/user/$(id -u)`。
 
 ## DSH harness 大版本升级（0.1.x → 0.1.y；0.1.1-rc.2 → 0.1.5-rc.2 实证）
 
 源码型项目里的 `deepseek-harness`（分支 `master`）在 applist.toml 中默认禁用；它**就是生产实例（3080）的代码**，
-大版本跨越不能只 `git pull`（dev worktree/3081 已于 2026-09-13 下线），按「源码升级 → 隔离冒烟验证 → 重建 → 报告后延时重启」走：
+大版本跨越不能只 `git pull`（dev worktree/3081 曾于 2026-09-13 下线，**2026-09-27 起以
+`dsh-web-dev.service` + `DSH_HOME=~/.dsh-dev` 重新上线**——升级时它是现成的隔离验证目标，
+但仍建议用下方 /tmp 副本 + 备用端口的方式，别直接拿它在跑的状态当实验场），
+按「源码升级 → 隔离冒烟验证 → 重建 → 报告后延时重启」走：
 
 1. **升级源码**（旧进程在内存里继续跑，改文件本身不断线）：
    ```sh
@@ -270,8 +320,10 @@ systemctl --user stop dsh-restart-once.timer
 ## link: 插件源码更新后的重建（pull ≠ 生效）
 
 `[special.items]` 里那些 `link:` 插件的 `git pull` **只改源码**——运行时加载的是各仓库自己的
-`lib/`（或 `dist/`）构建产物，不重建就还是旧版（2026-09-20 实证：dsh-genui 从 0.10 拉到
-0.11.1-preview.2、上游 ~60 个文件，而 `lib/client.js` 仍是 9月12日 的旧产物，体积 258KB → 重建后 560KB）。
+`lib/`（或 `dist/`）构建产物，不重建就还是旧版。两次实证：
+2026-09-20 dsh-genui 从 0.10 拉到 0.11.1-preview.2、上游 ~60 个文件，而 `lib/client.js` 仍是
+9月12日 的旧产物（258KB → 重建后 560KB）；2026-09-30 genui 0.11.1 → 0.11.3（`29c36e3..0cc64c9`，
+带 0.11.2 的 standalone HTML 导出与若干修复），`lib/` 还停在 9-26。
 
 判据：`ls -la <插件>/lib` 的时间戳是否早于本次 `git pull`；或 `package.json` 版本已变而产物没变。
 
@@ -290,6 +342,14 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
   并在报告里说明「重建了什么、重启后生效」。
 - `dsh-evolve-modes` 这类自研/自有 fork 若是**本地提交领先上游**（`git status -sb` 显示 `[领先 N]`），
   `git pull` 不动它，`fetch` 检测会报「上游无新提交」——指针与推送按 AGENTS.md 的 submodule 规矩单独处理。
+- ⚠️ **submodule 路径 pull 完要落一条指针提交（2026-09-30 固化）**：`vendor/dsh-genui`、`dsh-toolkit`、
+  `dsh-evolve-modes` 都是 `dsh-extensions` 的 submodule，fast-forward 之后父仓库会变成
+  `M vendor/dsh-genui`。这个脏指针**会挡住下一次 `git pull --ff-only`**（报
+  `Your local changes to the following files would be overwritten`，命中 WIP 规则降级成 needs_input，
+  每次都要人工介入）。正确收尾：`git -C ~/projects/MyAI/dsh-extensions add vendor/dsh-genui &&
+  git commit -m "chore(submodule): bump …"`（**只提交指针，别顺手把别人的本地提交一起推**——
+  push 与否交用户拍板）。同仓 `plugins/` 下（如 `dsh-laya-router`）不是 submodule，源码改了要
+  自己 `pnpm run build`，产物时间戳比对同样适用。
 
 ## 本机已知问题速查（Arch）
 
