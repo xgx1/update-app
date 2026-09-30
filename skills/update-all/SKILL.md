@@ -222,7 +222,17 @@ systemctl --user stop dsh-restart-once.timer
   token 换成功后写入 cookie，再拿同一个 `?token=` URL 重复请求会 401（不是服务坏）。
   重启后取新地址：`journalctl --user -u dsh-web -n 20 --no-pager | grep -oE 'token=[^ ]+' | tail -1`。
   判活要带 cookie jar，否则永远 401：
-  `curl -sL -c /tmp/j -b /tmp/j -o /tmp/p.html -w "%{http_code}" "http://127.0.0.1:3080/?token=<新token>"` → 期望 `200` 且 HTML 里出现 `data-plugin="..."`（插件树注入成功的标志）。
+  `curl -sL -c /tmp/j -b /tmp/j -o /tmp/p.html -w "%{http_code}" "http://127.0.0.1:3080/?token=<新token>"` → 期望 `200`。
+  **插件树是否加载，别再找 `data-plugin="..."`（2026-09-30 起该标志已不存在，页面改成 manifest + bundle URL 了）**，
+  改看这两条：① `grep -oE '"/plugins/\?\?[^"]+"' /tmp/p.html` 能列出各插件的 client bundle；
+  ② `journalctl --user -u dsh-web --since <重启时刻> | grep -i 'plugin tree failed to load'` 为空。
+  想确认某个插件**新版真的生效**（不只是重启成功），把它的 bundle 拉下来验新特征：
+  ```bash
+  U=$(grep -oE '"/plugins/\?\?@changfenhuang/dsh-genui/client\.js[^"]*"' /tmp/p.html | head -1 | tr -d '"' | sed 's/&amp;/\&/g')
+  curl -sL -b /tmp/j -c /tmp/j "http://127.0.0.1:3080$U" -o /tmp/genui.js
+  grep -c 'genui\.json' /tmp/genui.js    # 0.11.2 起才有的 standalone 导出特征；命中即新版已上线
+  ```
+  （2026-09-30 实测：重启后线上 bundle 670981 字节、含 `genui.json`/`standalone` → 重建的 0.11.3 已生效。）
   若 `200` 但仍打不开，检查 `systemctl --user is-active dsh-web.service`。
 - **万一没拦住**（`stop` 晚了一步，服务已被重启）：页面恢复后立刻 `systemctl --user stop
   dsh-restart-once.timer`，并 `systemctl --user reset-failed dsh-restart-once` 清理单元残留。
