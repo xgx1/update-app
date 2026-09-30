@@ -235,9 +235,19 @@ systemctl --user stop dsh-restart-once.timer
 cd /tmp && env -i HOME="$HOME" PATH="$HOME/.local/bin:/usr/bin:/bin" LANG=C.UTF-8 \
   HEADROOM_PORT=8791 HEADROOM_HOST=127.0.0.1 HEADROOM_MODE=cache \
   HEADROOM_SAVINGS_PROFILE=coding OPENAI_TARGET_API_URL=https://api.deepseek.com \
-  timeout 20 setsid ~/.local/bin/headroom proxy > /tmp/headroom-smoke.log 2>&1 < /dev/null &
+  timeout 20 ~/.local/bin/headroom proxy > /tmp/headroom-smoke.log 2>&1 &
 sleep 4; curl -s http://127.0.0.1:8791/health | jq -c '{version,status,ready}'
 ```
+
+收尾（按端口取 pid，别用 `pkill -f`）：
+```bash
+p=$(ss -tlnpH 'sport = :8791' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
+[ -n "$p" ] && kill "$p"; sleep 1; ss -tlnp | grep 8791 || echo "8791 已释放"
+```
+
+⚠️ **别加 `setsid`**：`setsid` 会把进程脱离出去，`timeout` 只能杀掉 setsid 自己，
+真正的 headroom 会变成游离实例一直占着 8791（2026-09-30 实测留下过一个）。
+冒烟实例本来就不需要脱离当前 bash 调用（健康检查在同一个调用里做）。
 
 ⚠️ **必须在干净环境里跑（`env -i`）**：DSH 的 bash 会话自带
 `all_proxy=socks5://127.0.0.1:7897` 与 `no_proxy=localhost,127.0.0.1,::1,[::1]`，headroom 0.39.1
@@ -248,8 +258,7 @@ sleep 4; curl -s http://127.0.0.1:8791/health | jq -c '{version,status,ready}'
 
 ⚠️ **别用 `pkill -f '<含端口/环境变量名的字符串>'` 收尾**：`-f` 匹配整条命令行，
 会连带匹配到你**自己这条 bash 调用**并把当前 shell 杀掉（2026-09-30 实测踩到两次，
-表现为输出戛然而止 + `[killed by signal: SIGTERM]`）。用 `timeout <N> setsid …` 让它自杀，
-或按端口号从 `ss -tlnp` 里取 pid 再 kill。
+表现为输出戛然而止 + `[killed by signal: SIGTERM]`）。用上面的按端口取 pid，或按 pid 精确 kill。
 - 若 `systemctl --user` 报 `Failed to connect to bus`，先 `export XDG_RUNTIME_DIR=/run/user/$(id -u)`。
 
 ## DSH harness 大版本升级（0.1.x → 0.1.y；0.1.1-rc.2 → 0.1.5-rc.2 实证）
