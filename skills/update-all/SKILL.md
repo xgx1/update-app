@@ -1,22 +1,45 @@
 ---
 name: update-all
-description: 更新所有软件（源码项目 / Arch 系统与 AUR 软件包 / 特殊配置与 DSH 插件源码）：调 update-app CLI（读取 applist.toml），读报错日志自动处理已知问题，需要用户拍板时停下询问并继续处理其他项，把新问题解法固化成 fixes.rules（下次 CLI 自愈，无需 AI）。触发词：更新所有软件、全部更新、跑一下 update all、更新一下所有东西、检查更新。
+description: 更新所有软件（源码项目 / 系统软件包 / 特殊配置与 DSH 插件源码）：调 update-app CLI（读取 applist.toml），读报错日志自动处理已知问题，需要用户拍板时停下询问并继续处理其他项，把新问题解法固化成 fixes.rules（下次 CLI 自愈，无需 AI）。支持 Arch Linux（pacman/yay + systemd）与 Windows（scoop + 计划任务）。触发词：更新所有软件、全部更新、跑一下 update all、更新一下所有东西、检查更新。
 ---
 
-# update all —— 更新所有软件（源码项目 + Arch 系统/AUR 软件包 + 特殊配置/DSH 插件）· Arch Linux 版
+# update all —— 更新所有软件（源码项目 + 系统软件包 + 特殊配置/DSH 插件）· Arch Linux & Windows
 
 ## 何时使用
 
 用户说「更新所有软件 / 全部更新 / 跑一下 update all / 更新一下所有东西 / 检查更新」等时使用。
 
+## 平台分支（**先读这段**）
+
+本技能同时支持 **Arch Linux** 与 **Windows**。正文以 Arch 为例；Windows 的每处差异集中在文末
+的「[Windows 支持](#windows-支持)」整节。开始前先判定平台：
+
+| 判定 | 平台 | 怎么读 |
+|---|---|---|
+| `uname -s` = `Linux`（含 WSL） | Arch Linux | 正文；文末有差异速记 |
+| `$env:OS -eq 'Windows_NT'`（PowerShell）/ `process.platform === 'win32'` | Windows | 正文的**通用部分**（下方列出）+ 文末「Windows 支持」覆盖所有平台相关处 |
+
+**两平台完全一致**（可直接照正文做）：CLI 子命令（`run` / `list` / `validate` / `self`，选项
+`--config` / `--dry-run` / `--only` / `--timeout` / `--repo` / `--project`）；`applist.toml` 的
+`[source.projects]` / `[special.items]` / `[fixes.rules]` 结构；status 语义
+（`ok` / `fixed` / `skipped` / `needs_input` / `failed`）；标准流程「运行 → 读日志分类 → 处理
+needs_input → 处理 failed → **固化 fixes.rules** → 汇总 → 收尾重启」。
+
+**平台相关的只有五处**（Windows 的逐条替换见文末「Windows 支持」）：
+
+| 主题 | Arch（正文） | Windows |
+|---|---|---|
+| 软件包管理 | pacman + yay（AUR）；`[scoop]` 关闭 | `scoop update *`（`[scoop] update_all = true`） |
+| 路径根 | `~/projects/...` | `C:/Users/Admin/Project/...`（`~/projects` 是指向 `~\Project` 的 junction；该目录区分大小写） |
+| CLI 入口 | `dotnet <current.json 里的 dll>` | 直接执行 `current.json` 里的 `.exe` |
+| 命令 shell | `/bin/sh -lc` | `cmd.exe /d /c`（自定义 command 用 cmd 语法） |
+| DSH 托管/重启 | systemd 用户服务 + 延时 `systemd-run` | 计划任务 `dsh-web` + `Stop/Start-ScheduledTask` |
+
 ## 一句话架构
 
-**update-app** CLI（.NET 10，本机位于 `~/projects/update-app`）读取 `applist.toml`，
-执行三类更新并把逐项结果写成结构化 JSON；本技能负责：跑 CLI → 读日志 → 分类处理 →
-把新问题的解法固化成规则（下次 CLI 自己就能处理，不再需要 AI）。
-
-> 本文件是 **Arch Linux 版**（原版为 Windows/Scoop/PM2，2026-08-28 适配迁移）。
-> Windows 关键差异速记见文末。
+**update-app** CLI（.NET 10）读取 `applist.toml`，执行三类更新并把逐项结果写成结构化 JSON；
+本技能负责：跑 CLI → 读日志 → 分类处理 → 把新问题的解法固化成规则（下次 CLI 自己就能处理，
+不再需要 AI）。CLI 位置：Arch `~/projects/update-app`；Windows `C:/Users/Admin/Project/update-app`。
 
 ## 更新逻辑（applist.toml 三类配置）
 
@@ -488,15 +511,127 @@ done
 
 修改过 `applist.toml`（新增/调整规则或更新项）时，在汇总里明确列出，并说明每条新规则的作用。
 
-## Windows 旧版差异速记（迁移参考）
+## Windows 支持
 
-| 项 | Windows（旧） | Arch（本版） |
-|---|---|---|
-| 软件包管理 | scoop | pacman + yay（AUR） |
-| 路径 | `~\Project\Other\update-app` | `~/projects/update-app` |
-| 运行 CLI | 直接执行 `update-app.exe` | `dotnet update-app.dll`（current.json 的 exe 是 dll 路径） |
-| 带 SDK 的 dotnet | scoop 的 dotnet-sdk | `~/.dotnet/dotnet`（10.0.400） |
-| 命令执行 shell | cmd.exe /d /c | /bin/sh -lc（ProcessRunner 已按平台分支，2026-08-28 适配） |
-| git 探测环境变量坑 | MSBuildSDKsPath / Version | 无（update-app 仍会剥离，无副作用） |
-| DSH 托管 | PM2 | systemd 用户服务（dsh-web / headroom-*） |
-| 代理 | 127.0.0.1:7897 | 127.0.0.1:7897（clash-verge/mihomo） |
+> 本节是 Windows 上运行本技能所需的全部差异；未提到的按正文通用部分执行。
+> 参考配置：本机 `applist.toml` 是 **Windows 版**；Arch 版另存为同目录的
+> `applist.arch-linux.toml`。规范路径：`APP=C:\Users\Admin\Project\update-app`、
+> `WS=C:\Users\Admin\Project\MyAI`、`DSH_HOME=%USERPROFILE%\.dsh`。
+> `~/projects` 是指向 `~\Project` 的 junction，且 `Project` 目录**区分大小写**——路径统一写
+> `C:/Users/Admin/Project/...`（正斜杠，避免 TOML 反斜杠转义）。
+
+### W1. applist.toml（Windows 形态）
+
+```toml
+[general]
+log_dir = "logs"
+bin_dir = "bin"
+timeout_seconds = 1800
+
+[scoop]                 # Windows 的「系统级更新」
+update_all = true       # → scoop update *
+apps = []
+
+[[source.projects]]
+name = "update-app"
+path = "C:/Users/Admin/Project/update-app"
+
+[[special.items]]
+name = "dsh 插件源码"
+paths = ["C:/Users/Admin/Project/MyAI/dsh-extensions"]
+
+[[special.items]]
+name = "第三方插件上游检测（只 fetch，不改工作区）"
+paths = [
+  "C:/Users/Admin/Project/MyAI/dsh-extensions/vendor/dsh-genui",
+  "C:/Users/Admin/Project/MyAI/dsh-extensions/vendor/billion-context",
+]
+command = "git -C {path} fetch -q origin && git -C {path} rev-list --count HEAD..FETCH_HEAD"
+```
+
+- 权威文件：`C:\Users\Admin\Project\update-app\applist.toml`。本机第三方 vendor **只有**
+  `dsh-genui` 与 `billion-context`（**没有** `dsh-toolkit` / `dsh-evolve-modes`）。
+- `[fixes.rules]` 保留通用规则（网络 / 非 git / 路径漂移 / 冲突 / WIP）即可；pacman/yay 那几条
+  在 Windows 不会命中，可留可删。
+
+### W2. 运行 CLI
+
+Windows 上 `current.json` 的 `exe` 是 **`.exe`**，直接执行（Arch 上则是 dll，需 `dotnet`）：
+
+```powershell
+$APP = "$env:USERPROFILE\Project\update-app"
+$exe = (Get-Content "$APP\bin\current.json" -Raw | ConvertFrom-Json).exe
+& $exe run      --config "$APP\applist.toml"
+& $exe list
+& $exe validate
+```
+
+### W3. .NET / dotnet
+
+- 系统 `dotnet` = **10.0.401**（`C:\Program Files\dotnet`，来自 `winget install Microsoft.DotNet.SDK.10`）。
+- ⚠️ 本机曾有一个**用户级环境变量 `MSBuildSDKsPath`** 指向 scoop 的 dotnet9-sdk，会让 `dotnet build`
+  强制用 .NET 9 并报 `NETSDK1045 ... 不支持面向 .NET 10.0`。已删除。若复发：
+  ```powershell
+  [Environment]::SetEnvironmentVariable('MSBuildSDKsPath',$null,'User')
+  Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue   # 当前会话
+  ```
+  验证：`dotnet --version` 应为 `10.0.x`；`& $exe validate` 应显示
+  `[ok] dotnet: C:\Program Files\dotnet\dotnet.exe`。
+  （update-app 的 `ProcessRunner` 对子进程也会剥掉 `MSBuildSDKsPath`，CLI 本身不受影响。）
+
+### W4. 命令语法（cmd，不是 sh）
+
+自定义 `command` 由 `cmd.exe /d /c` 执行：可用 `&&` / `|` / `>`；**不要**用 bash 的 `$(...)`、
+`[ ]`、`sh -lc`。示例见 W1。
+
+### W5. `self` 自更新
+
+- `self` = `git pull` + `dotnet publish` → `bin\<时间戳>\`，并写 `bin\current.json`。
+- ⚠️ 若当前正从 `bin\Release\net10.0\update-app.dll` 运行，publish 会因该 dll 被自身锁定而
+  失败（`MSB3027` / `MSB3021 ... being used by another process`）。做法：把 Release 产物**拷到
+  临时目录**再从那里跑 `self`，或先结束占用进程。
+- `git pull` 要求工作树干净：Windows 版 `applist.toml` 是本机提交（`92b7c3c`，未推送）；若上游改了
+  同一文件，`--ff-only` 可能冲突 → 命中 WIP 规则转 `needs_input`，先问用户。
+
+### W6. DSH 托管与收尾重启（取代正文第 7 步）
+
+Windows 没有 systemd；生产 `dsh-web` 由**计划任务**托管，启动脚本
+`%USERPROFILE%\.dsh\dsh-web-launch.ps1`，日志 `%USERPROFILE%\.dsh\dsh-web.log`（UTF-16，用
+`Get-Content` 读）。
+
+```powershell
+Get-ScheduledTask -TaskName dsh-web | Select-Object TaskName,State
+Stop-ScheduledTask  -TaskName dsh-web
+Start-ScheduledTask -TaskName dsh-web          # 收尾重启
+```
+
+- **重启会打断当前对话**（若你正跑在 dsh-web 内）：Windows 没有 Arch 的 `systemd-run --on-active`
+  延时机制，做不到「排程后本进程自然结束」。安全顺序仍是「汇总报告完整发出 → 再重启」，只是重启
+  那次调用会切断自己，属预期。需要保留报告时，可先用一次性计划任务/`Start-Job` 延时，但简单场景
+  直接「报告 → 重启」即可。
+- **地址 / token**：每次启动新发、**一次性**；用一次后写 cookie，再用同一个 `?token=` 会 401（正常）。
+  取新地址：
+  ```powershell
+  Get-Content "$env:USERPROFILE\.dsh\dsh-web.log" -Tail 40 | Select-String 'token='
+  ```
+  健康检查：裸访问 `http://127.0.0.1:3080` 期望 **401**；带 `?token=` 的地址期望 200/303。
+
+### W7. 第 0 步「缺库体检」在 Windows 不适用
+
+无 pacman SONAME 换代问题。改为：
+
+```powershell
+& $exe validate
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3080 -MaximumRedirection 0 -ErrorAction SilentlyContinue
+```
+
+### W8. Windows 已知问题速查
+
+| 日志特征 | 处理 |
+|---|---|
+| `NETSDK1045 ... 不支持面向 .NET 10.0` | `MSBuildSDKsPath` 残留指向 .NET 9：按 W3 清除 |
+| `MSB3027` / `MSB3021 ... being used by another process`（self publish） | 从副本运行 `self`（W5） |
+| 路径「不存在」（`C:/...`） | 配置漂移，或误用了 Arch 版 applist；核对实际目录，权威是 `WS/deepseek-harness`、`WS/dsh-extensions`（第三方只有 `vendor/dsh-genui`、`vendor/billion-context`） |
+| `scoop` 命令不可用 | 在 PowerShell 里确认 `scoop --version`；缺则重装/修 PATH |
+| `Could not resolve host` / `unable to access` | 网络 / 代理：设 `$env:HTTP_PROXY`、`$env:HTTPS_PROXY` 后重试（规则已 skip） |
+| `fatal: not a git repository` / 冲突 / WIP | 同正文，规则已 ask_user |
