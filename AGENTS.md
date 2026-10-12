@@ -7,7 +7,7 @@
 
 - **两类内容同仓**：CLI 在仓库根（`Program.cs` / `Runner.cs` / `AppConfig.cs` / `ProcessRunner.cs` / `Logger.cs`），
   技能在 [`skills/update-all/SKILL.md`](skills/update-all/SKILL.md)。改 CLI 行为要同步技能里的判据，反之亦然。
-- **技能靠软链，不复制**：`MyAI/dsh-extensions/install-skill.sh` 把 `skills/update-all` 软链到
+- **技能靠软链，不复制**：`~/projects/MyAI/dsh-extensions/install-skill.sh` 把 `skills/update-all` 软链到
   `~/.dsh/skills/update-all`。往 `~/.dsh/skills/` 放副本必与仓库漂移（以前就漂过一次）。
 - **新增/修改更新项只改 `applist.toml`**，不改代码：`[source]`（源码仓，默认 `git pull --ff-only`）、
   `[scoop]`（**Arch 上恒为 no-op**，系统更新走 `[source]` 里的 pacman/yay 自定义命令）、
