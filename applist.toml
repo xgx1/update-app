@@ -74,6 +74,14 @@ match = "CONFLICT \\(content\\)|Merge conflict|Automatic merge failed"
 hint = "git 存在合并冲突，需要人工解决后重试"
 ask_user = true
 
+# 本地与上游分叉（两侧各有独有提交），fast-forward 拉不动 → 自动 merge origin/main 后重试。
+# 2026-10-12 固化：update-app 自身首次命中（本地 2 个 Windows 提交 vs 上游 3 个提交）。
+# ⚠️ merge 成功即自愈；若产生冲突会留下 MERGE 状态，下一次 run 命中上面的 CONFLICT 规则转 needs_input。
+[[fixes.rules]]
+match = "Not possible to fast-forward|Diverging branches can't be fast-forwarded"
+command = "git -C {path} merge --no-edit origin/main"
+hint = "本地与上游分叉：自动 git merge origin/main 后重试；若产生冲突会留下 MERGE 状态，需人工解决"
+
 # 本地有未提交修改（开发中 WIP）：绝不能自动丢弃，停下询问
 [[fixes.rules]]
 match = "cannot pull with rebase: You have unstaged changes|Your local changes (to the following files )?would be overwritten|Please commit (your changes )?or stash them"
