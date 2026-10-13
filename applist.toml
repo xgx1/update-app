@@ -191,6 +191,15 @@ match = "cannot pull with rebase: You have unstaged changes|Your local changes (
 hint = "仓库有本地未提交修改（可能是 WIP）：需要确认是 stash/commit 后重试，还是跳过本次更新（先看 git status）"
 ask_user = true
 
+# 本地分支与远端分叉：`git pull --ff-only` 直接中止（本地有自己的提交，远端也有新提交）。
+# 2026-10-14 固化：此前只报「未命中已知修复规则」→ failed。怎么合（merge 还是 rebase、
+# 本地提交要不要推）牵涉别人/自己的未推送提交，不该由 CLI 自动决定，故降级为 needs_input。
+# 实例：dsh-extensions 本地领先 1（genui 指针 bump）+ 远端领先 3（插件 link: 相对路径）。
+[[fixes.rules]]
+match = "Not possible to fast-forward, aborting|无法快进|无法在偏离的分支上进行快进"
+hint = "本地分支与 origin 分叉（本地有提交、远端也有新提交）：人工选一种合并方式（git merge --no-ff origin/main 或 git rebase origin/main），确认后再跑一次"
+ask_user = true
+
 # pacman 数据库锁残留：自动清锁重试（先确认没有 pacman 进程在跑，否则不动锁）
 [[fixes.rules]]
 match = "unable to lock database|database is locked|failed to init transaction"
