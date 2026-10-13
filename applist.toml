@@ -39,6 +39,10 @@ command = "sudo pacman -Syu --noconfirm"
 name = "yay AUR 更新"
 path = "/home/sx/.cache/yay"
 command = "yay -Sua --noconfirm"
+# 2026-10-14 加：AUR 换的只是磁盘文件，运行中的 GUI/常驻进程仍旧代码——clash-verge 升级后
+# 会一直显示旧版本直到下次登录（pacman 脚本明写要重启）。后置脚本按「二进制 mtime 晚于
+# 进程启动时间」判定陈旧并重启（rayburst/motrix-next 单元、clash-verge GUI、特权服务）。
+post_commands = ["bash /home/sx/projects/update-app/scripts/post-aur-restart.sh"]
 
 # ── 2026-09-26 纳入：uv 工具（pacman/yay 都管不到，只能走 uv tool upgrade）────
 # 本机常驻组件，此前不在覆盖内 → 长期只能手动更新：

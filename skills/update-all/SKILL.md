@@ -396,6 +396,15 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
 | dsh-web 崩溃重启循环 + `Cannot find package '@deepseek-ai/…' imported from …/dsh-extensions/vendor/…`（`plugin tree failed to load`） | **自开发检出改名/移动过**：`dsh-extensions/vendor/*/node_modules` 里指向旧 worktree 的绝对符号链接悬空（2026-09-13 `master/`→`deepseek-harness/` 断 23 条）。修复：跑下方「vendor 悬空链接重指」→ 再按第 7 步排程延时重启 dsh-web；applist.toml 已固化成 fixes.rule，下次命中自动修。预防：改名/移动后先重指、确认 `find ~/projects/MyAI/dsh-extensions -xtype l` 为空再重启 |
 | 定时单元在开机补跑时 **core dump / ABRT**（`status=6/ABRT`，`coredumpctl` 里只有裸 `abort ← libcoreclr` 栈、没有托管异常文本） | **先找该单元的 `StandardError=` 重定向文件，别只信 coredumpctl**：`systemctl --user cat <unit>` 看一眼，.NET 的 `Unhandled exception. …` 全文在那里（2026-09-30 `find-work-promo-publish` 实例：托管栈完整躺在 `~/.cache/find-work/promo-publish.log`，指向 Playwright `connect ECONNREFUSED 127.0.0.1:9222`）。这类「开机补跑必崩」多半是**前提服务没起**：被依赖方是 `systemd-run` 起的 **transient** unit（重启即消失，`After=` 对它无效）→ 修法是给单元加 `ExecStartPre` 显式拉起（幂等），并给 CLI 加顶层兜底 catch 免得再变 core dump |
 | 两个定时单元抢同一个 Chromium 持久化 profile → 后启动的 `Failed to create …/SingletonLock: 文件已存在 (17)` 后 exit 1（`modelscope-daily` × `modelscope-skill-publish`，2026-09-30） | 平时时间表错开，**开机补跑时两个 `Persistent=true` timer 会几乎同时到期**才撞上。修法：两个单元都先取同一把 `flock %t/<name>.lock …`（等待方用 `-w`，配套放宽 `TimeoutStartSec`），后者排队而不是抢锁；已落成 drop-in（`~/.config/systemd/user/modelscope-*.service.d/10-profile-mutex.conf`）。注意「清残留 SingletonLock」的 ExecStartPre 只清**死 pid**，对活着的实例正确地不动手，救不了这种撞车 |
+| AUR 包长期「不更新」：`yay -Sua` 每轮 no-op、应用界面版本号停旧（2026-10-14 `motrix-next-bin` 3.9.9 实例） | **上游改名换包，`-Sua` 结构上发现不了**：AUR 无跨包 `replaces` 链接，旧包版本号被冻结 ⇒ 永远没有版本差可做。诊断三步：① `pacman -Qi <包>` 看安装日期；② AUR RPC `info?arg[]=<包>` 看 `LastModified`；③ 跟 GitHub 仓库 301 重定向找新仓库（`AnInsomniacy/motrix-next` → `rayburst`，AUR 对应 `rayburst-bin` 4.0.1）。解法：`yay -S <新包>`（本例还拉了 AUR `aria2-next` 作引擎）+ 迁移数据/配置目录（Tauri identifier `com.motrix.next` → `dev.aninsomniacy.rayburst`：`cp -a` 两份目录、改 `engine/aria2.conf` 里的绝对路径）+ 单元改名 `motrix-next.service` → `rayburst.service`。**副产品教训**：`systemctl stop` 前先确认没有孤儿子进程占着端口——`KillMode=process` 只杀主进程，引擎会留在死 cgroup 里继续监听（新单元已改 `KillMode=mixed`） |
+
+### AUR 升级后重启运行中的应用（2026-10-14 落成）
+
+`yay`/`pacman` 只换磁盘文件，运行中的 GUI/常驻进程仍旧代码：clash-verge 升级后会一直显示旧版本直到下次登录（pacman 安装脚本自己也提示要重启）。applist.toml 的「yay AUR 更新」项已挂后置命令 `bash /home/sx/projects/update-app/scripts/post-aur-restart.sh`：
+
+- 判据：**二进制 mtime 晚于进程启动时间**（`/proc/<pid>` 的 mtime）⇒ 该进程是升级前起的，需重启。降级/同内容重装会误判成陈旧，代价只是多重启一次。
+- 处理对象：用户单元 `rayburst`（下载器；`KillMode=mixed` 保证引擎子进程一起换）、`clash-verge` GUI（杀掉后用原进程环境 `setsid -f` 拉起——复用 `/proc/<pid>/environ` 的 DISPLAY/WAYLAND/DBUS）、系统单元 `clash-verge-service`（`sudo -n` 重启）。
+- 退出码 0=就绪（含「无需重启」），1=有应用没拉起来（update-app 会把这行标成失败项）。`verge-mihomo` 核心由 `clash-verge-service`（ppid=1）持有，杀 GUI 不会断代理。
 
 ### 更新后缺库体检（SONAME 换代类故障）
 
