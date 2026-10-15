@@ -599,19 +599,26 @@ $exe = (Get-Content "$APP\bin\current.json" -Raw | ConvertFrom-Json).exe
     `You must install or update .NET to run this application. … Framework 'Microsoft.NETCore.App' version '10.0.0' … .NET location: C:\Users\Admin\scoop\apps\dotnet9-sdk\current`
     （注意 `dotnet --version` 仍是 10.0.401——PATH 里 `C:\Program Files\dotnet` 在最前，所以**光看 `dotnet --version` 查不出这个坑**。）
   - `MSBuildSDKsPath` → .NET 9 的 Sdks，会让 `dotnet build` 报 `NETSDK1045 ... 不支持面向 .NET 10.0`。
-  2026-10-15 实测复发（`scoop update *` 之后）。修复：
+  **根因**：scoop 的 `versions/dotnet9-sdk` manifest 用 `env_set` 写这两个变量——所以每次
+  `scoop update`/`scoop reset` 都会把它们改回 .NET 9，**修了还会复发**。
+  **2026-10-15 已根治**：`scoop uninstall dotnet9-sdk`（用户拍板；`C:\Program Files\dotnet` 自带
+  SDK 9.0.317 + 运行时 9.0.19，那份纯冗余）。卸载时 scoop 把两个变量一并移除，现在
+  `[Environment]::GetEnvironmentVariable('DOTNET_ROOT','User')` 为**空值**——apphost 走注册表默认
+  位置 `C:\Program Files\dotnet`，正常。
+  同日把 .NET 升到最新正式版 **10.0.402**：winget（`Microsoft.DotNet.SDK.10`，装进 `C:\Program Files\dotnet`）
+  与 scoop（`main/dotnet-sdk`，`scoop update *` 顺带升到 10.0.402）**两条通道都到位**。
+  ⚠️ scoop 的 `main/dotnet-sdk` 仍在，它的 manifest 同样有 `env_set`：若某次 scoop 更新后
+  `DOTNET_ROOT` 又出现，值是 scoop 那份 dotnet-sdk 的 root——**那是 .NET 10，无害**，不必清。
+  只有在它指向 .NET 9（或 .NET 9 包被重新装上）时才按上面的命令改回。
+  应急修法（若 CLI 又起不来）：
   ```powershell
   [Environment]::SetEnvironmentVariable('DOTNET_ROOT','C:\Program Files\dotnet','User')
   [Environment]::SetEnvironmentVariable('MSBuildSDKsPath',$null,'User')
   $env:DOTNET_ROOT = 'C:\Program Files\dotnet'            # 当前会话（每次 pwsh 调用都要重设）
   Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
   ```
-  验证：`& $exe validate` 应显示 `[ok] dotnet: C:\Program Files\dotnet\dotnet.exe`；
-  且 `'[Environment]::GetEnvironmentVariable("DOTNET_ROOT","User")'` 为 `C:\Program Files\dotnet`。
-  **每次 `scoop update *` 后都要复查这两个变量**（CLI 起不来时 fixes.rules 帮不上忙——它跑不起来就没机会匹配规则）。
-  根治选项（需用户拍板）：`scoop uninstall dotnet9-sdk`——2026-10-15 实测 `C:\Program Files\dotnet`
-  **已自带 SDK 9.0.317 + 运行时 9.0.19**（`dotnet --list-sdks` / `--list-runtimes`），scoop 那份
-  纯冗余；两个 scoop dotnet 争同一个 `DOTNET_ROOT` 才是问题根源。保留则每次 scoop 更新后按上面重设。
+  验证：`& $exe validate` 应显示 `[ok] dotnet: C:\Program Files\dotnet\dotnet.exe`。
+  **CLI 起不来时 fixes.rules 帮不上忙**——它跑不起来就没机会匹配规则，只能按本节手动修。
   （update-app 的 `ProcessRunner` 对子进程也会剥掉 `MSBuildSDKsPath`，CLI 内部构建不受影响。）
 
 ### W4. 命令语法（cmd，不是 sh）
