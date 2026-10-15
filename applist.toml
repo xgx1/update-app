@@ -1,5 +1,9 @@
 # update-app 配置文件（Windows 版，2026-10-07 由 Arch 版 applist.arch-linux.toml 适配）
 # 路径一律用正斜杠，避免 TOML 反斜杠转义；自定义命令走 cmd.exe /d /c。
+# 2026-10-15 合并 origin/main：保留本 Windows 版结构（scoop + Windows 路径），
+# 吸收上游 6b26847「本地与远端分叉降级为 needs_input」——本机原「自动 merge origin/main」
+# 规则正是这次卡住的原因（merge 出 applist.toml 冲突，留下 MERGE 状态）。Arch 专属项
+# （pacman/yay/uv/AUR post_commands/cua-driver）不并入本文件，它们的权威在 Arch 版。
 
 [general]
 log_dir = "logs"
@@ -74,13 +78,15 @@ match = "CONFLICT \\(content\\)|Merge conflict|Automatic merge failed"
 hint = "git 存在合并冲突，需要人工解决后重试"
 ask_user = true
 
-# 本地与上游分叉（两侧各有独有提交），fast-forward 拉不动 → 自动 merge origin/main 后重试。
-# 2026-10-12 固化：update-app 自身首次命中（本地 2 个 Windows 提交 vs 上游 3 个提交）。
-# ⚠️ merge 成功即自愈；若产生冲突会留下 MERGE 状态，下一次 run 命中上面的 CONFLICT 规则转 needs_input。
+# 本地与上游分叉（两侧各有独有提交），fast-forward 拉不动 → 人工拍板，不自动 merge。
+# 2026-10-14 上游固化（6b26847），2026-10-15 合并进本 Windows 版：本机 2026-10-12 装的
+# 「自动 git merge --no-edit origin/main」规则在 10-15 实测翻车——update-app 自身 applist.toml
+# 两边都改过，merge 直接冲突并留下 MERGE_HEAD，下一次 run 变成 needs_input+脏工作区。
+# 怎么合（merge/rebase、本地提交要不要推）涉及未推送提交，CLI 不该替人决定。
 [[fixes.rules]]
-match = "Not possible to fast-forward|Diverging branches can't be fast-forwarded"
-command = "git -C {path} merge --no-edit origin/main"
-hint = "本地与上游分叉：自动 git merge origin/main 后重试；若产生冲突会留下 MERGE 状态，需人工解决"
+match = "Not possible to fast-forward, aborting|无法快进|无法在偏离的分支上进行快进"
+hint = "本地分支与 origin 分叉（本地有提交、远端也有新提交）：人工选一种合并方式（git merge --no-ff origin/main 或 git rebase origin/main），确认后再跑一次"
+ask_user = true
 
 # 本地有未提交修改（开发中 WIP）：绝不能自动丢弃，停下询问
 [[fixes.rules]]
