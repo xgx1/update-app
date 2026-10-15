@@ -578,15 +578,25 @@ $exe = (Get-Content "$APP\bin\current.json" -Raw | ConvertFrom-Json).exe
 ### W3. .NET / dotnet
 
 - 系统 `dotnet` = **10.0.401**（`C:\Program Files\dotnet`，来自 `winget install Microsoft.DotNet.SDK.10`）。
-- ⚠️ 本机曾有一个**用户级环境变量 `MSBuildSDKsPath`** 指向 scoop 的 dotnet9-sdk，会让 `dotnet build`
-  强制用 .NET 9 并报 `NETSDK1045 ... 不支持面向 .NET 10.0`。已删除。若复发：
+- ⚠️ **两个用户级环境变量会被 scoop 的 `versions/dotnet9-sdk` 反复写回**（它的 manifest 有
+  `env_set = { DOTNET_ROOT = "$dir", MSBuildSDKsPath = "$dir\sdk\$version\Sdks" }`）：
+  - `DOTNET_ROOT` → scoop 的 .NET 9 root。**apphost 优先用它**，于是 `update-app.exe` 直接起不来：
+    `You must install or update .NET to run this application. … Framework 'Microsoft.NETCore.App' version '10.0.0' … .NET location: C:\Users\Admin\scoop\apps\dotnet9-sdk\current`
+    （注意 `dotnet --version` 仍是 10.0.401——PATH 里 `C:\Program Files\dotnet` 在最前，所以**光看 `dotnet --version` 查不出这个坑**。）
+  - `MSBuildSDKsPath` → .NET 9 的 Sdks，会让 `dotnet build` 报 `NETSDK1045 ... 不支持面向 .NET 10.0`。
+  2026-10-15 实测复发（`scoop update *` 之后）。修复：
   ```powershell
+  [Environment]::SetEnvironmentVariable('DOTNET_ROOT','C:\Program Files\dotnet','User')
   [Environment]::SetEnvironmentVariable('MSBuildSDKsPath',$null,'User')
-  Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue   # 当前会话
+  $env:DOTNET_ROOT = 'C:\Program Files\dotnet'            # 当前会话（每次 pwsh 调用都要重设）
+  Remove-Item Env:MSBuildSDKsPath -ErrorAction SilentlyContinue
   ```
-  验证：`dotnet --version` 应为 `10.0.x`；`& $exe validate` 应显示
-  `[ok] dotnet: C:\Program Files\dotnet\dotnet.exe`。
-  （update-app 的 `ProcessRunner` 对子进程也会剥掉 `MSBuildSDKsPath`，CLI 本身不受影响。）
+  验证：`& $exe validate` 应显示 `[ok] dotnet: C:\Program Files\dotnet\dotnet.exe`；
+  且 `'[Environment]::GetEnvironmentVariable("DOTNET_ROOT","User")'` 为 `C:\Program Files\dotnet`。
+  **每次 `scoop update *` 后都要复查这两个变量**（CLI 起不来时 fixes.rules 帮不上忙——它跑不起来就没机会匹配规则）。
+  根治选项（需用户拍板）：`scoop uninstall dotnet9-sdk`——本机没有任何 net9.0 目标项目，
+  两个 scoop dotnet 争同一个 `DOTNET_ROOT` 才是问题根源；保留则每次 scoop 更新后按上面重设。
+  （update-app 的 `ProcessRunner` 对子进程也会剥掉 `MSBuildSDKsPath`，CLI 内部构建不受影响。）
 
 ### W4. 命令语法（cmd，不是 sh）
 
@@ -638,6 +648,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3080 -MaximumRedirection 0 -
 
 | 日志特征 | 处理 |
 |---|---|
+| `You must install or update .NET to run this application … .NET location: …\scoop\apps\dotnet9-sdk\current` | `DOTNET_ROOT` 被 scoop dotnet9-sdk 写回：按 W3 重指到 `C:\Program Files\dotnet`（`dotnet --version` 查不出，apphost 只看 `DOTNET_ROOT`） |
 | `NETSDK1045 ... 不支持面向 .NET 10.0` | `MSBuildSDKsPath` 残留指向 .NET 9：按 W3 清除 |
 | `MSB3027` / `MSB3021 ... being used by another process`（self publish） | 从副本运行 `self`（W5） |
 | 路径「不存在」（`C:/...`） | 配置漂移，或误用了 Arch 版 applist；核对实际目录，权威是 `WS/deepseek-harness`、`WS/dsh-extensions`（第三方只有 `vendor/dsh-genui`、`vendor/billion-context`） |
