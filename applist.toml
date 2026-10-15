@@ -1,9 +1,10 @@
-# update-app 配置文件（Windows 版，2026-10-07 由 Arch 版 applist.arch-linux.toml 适配）
+# update-app 配置文件（Windows 版）—— 本文件只存在于 windows 分支
 # 路径一律用正斜杠，避免 TOML 反斜杠转义；自定义命令走 cmd.exe /d /c。
-# 2026-10-15 合并 origin/main：保留本 Windows 版结构（scoop + Windows 路径），
-# 吸收上游 6b26847「本地与远端分叉降级为 needs_input」——本机原「自动 merge origin/main」
-# 规则正是这次卡住的原因（merge 出 applist.toml 冲突，留下 MERGE 状态）。Arch 专属项
-# （pacman/yay/uv/AUR post_commands/cua-driver）不并入本文件，它们的权威在 Arch 版。
+# 分支模型（2026-10-15）：main = 通用部分（CLI/技能/文档，无 applist.toml）；
+# windows / linux = main + 各自这份配置。改通用部分在 main 上改，再 `git merge main` 进本分支。
+# 2026-10-15 合并 origin/main：吸收上游 6b26847「本地与远端分叉降级为 needs_input」——
+# 本机原「自动 merge origin/main」规则正是这次卡住的原因（merge 出 applist.toml 冲突，留下 MERGE 状态）。
+# Arch 专属项（pacman/yay/uv/AUR post_commands/cua-driver）不并入本文件，权威在 linux 分支的 applist.toml。
 
 [general]
 log_dir = "logs"
