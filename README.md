@@ -16,6 +16,21 @@
 > 本仓库原先位于 `MyAI/update-app`，2026-09-13 迁到 `~/projects/update-app` 独立成仓。
 > `applist.toml` 里那条自更新项（`name = "update-app"`）已同步改为新路径。
 
+## 分支模型：main 通用，windows / linux 各带自己的配置
+
+| 分支 | 内容 | 谁用 |
+|---|---|---|
+| `main` | **只有通用部分**：CLI（`Program.cs` …）、技能、`scripts/`、文档、`update-app.csproj`。**不含 `applist.toml`** | 所有人：改代码、改技能、看文档都在这里提 |
+| `windows` | `main` + Windows 版 `applist.toml`（scoop + `C:/Users/...` 路径） | 本 Windows 机；工作分支 |
+| `linux` | `main` + Arch 版 `applist.toml`（pacman/yay/uv + `/home/sx/...` 路径） | Arch 机；工作分支 |
+
+- 两个 OS 分支**只比 main 多一个 `applist.toml`**（同路径、不同内容）。这样 `main` 的更新
+  （CLI、技能、规则语义）可以直接 merge 进两个分支，**永远不会在 `applist.toml` 上撞冲突**——
+  2026-10-15 之前两份配置同在 `main` 上，每次上游动配置就冲突一次。
+- 换机器/首次克隆：`git clone … && git checkout windows`（或 `linux`），配置即到位。
+- 改配置＝在**自己那个分支**上改；改通用部分＝在 `main` 上改，再 merge 进两个分支。
+- 2026-10-15 之前那份 `applist.arch-linux.toml`（Arch 配置的副本）已删除——它就是 `linux` 分支的 `applist.toml`，留着只会漂移。
+
 ## 更新三类内容
 
 | 类别 | 说明 | 默认动作 |
