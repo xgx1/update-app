@@ -1,4 +1,7 @@
-# update-app 配置文件（Arch Linux 版，2026-08-28 由 Windows 版适配）
+# update-app 配置文件（Arch Linux 版）—— 本文件只存在于 linux 分支
+# 分支模型（2026-10-15）：main = 通用部分（CLI/技能/文档，无 applist.toml）；
+# windows / linux = main + 各自这份配置。改通用部分在 main 上改，再 `git merge main` 进本分支。
+# （旧副本 applist.arch-linux.toml 已删除——那份配置就是本文件。）
 # 本文件记录「需要更新什么」。update-app 读取它执行更新，并把结果写入 logs/latest.json + logs/latest.log。
 
 [general]
