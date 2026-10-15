@@ -1,0 +1,101 @@
+# update-app 配置文件（Windows 版，2026-10-07 由 Arch 版 applist.arch-linux.toml 适配）
+# 路径一律用正斜杠，避免 TOML 反斜杠转义；自定义命令走 cmd.exe /d /c。
+# 2026-10-15 合并 origin/main：保留本 Windows 版结构（scoop + Windows 路径），
+# 吸收上游 6b26847「本地与远端分叉降级为 needs_input」——本机原「自动 merge origin/main」
+# 规则正是这次卡住的原因（merge 出 applist.toml 冲突，留下 MERGE 状态）。Arch 专属项
+# （pacman/yay/uv/AUR post_commands/cua-driver）不并入本文件，它们的权威在 Arch 版。
+
+[general]
+log_dir = "logs"
+bin_dir = "bin"
+timeout_seconds = 1800
+
+# ---------------------------------------------------------------------------
+# 1. Scoop 应用：update_all=true → scoop update *
+# ---------------------------------------------------------------------------
+[scoop]
+update_all = true
+apps = []
+
+# ---------------------------------------------------------------------------
+# 2. 源码型项目
+# ---------------------------------------------------------------------------
+[source]
+
+[[source.projects]]
+name = "update-app"
+path = "C:/Users/Admin/Project/update-app"
+
+# 注意：MyAI/deepseek-harness（DSH 生产检出）不纳入自动 pull——升级要走
+# 「源码升级→隔离冒烟验证→重建→用户确认后重启」，自动 pull 会打挂 3080 实例。
+
+# ---------------------------------------------------------------------------
+# 3. 特殊配置更新：DSH 插件均为源码安装，link: 目标都在 dsh-extensions 内
+# ---------------------------------------------------------------------------
+[special]
+
+[[special.items]]
+name = "dsh 插件源码"
+paths = [
+  "C:/Users/Admin/Project/MyAI/dsh-extensions",
+]
+
+# 第三方/vendor 插件：只 fetch 检测上游新提交，不改工作区（自动 pull 会改变生产插件行为）。
+[[special.items]]
+name = "第三方插件上游检测（只 fetch，不改工作区）"
+paths = [
+  "C:/Users/Admin/Project/MyAI/dsh-extensions/vendor/dsh-genui",
+  "C:/Users/Admin/Project/MyAI/dsh-extensions/vendor/billion-context",
+]
+command = "git -C {path} fetch -q origin && git -C {path} rev-list --count HEAD..FETCH_HEAD"
+
+# ---------------------------------------------------------------------------
+# 4. 已知问题自愈规则
+# ---------------------------------------------------------------------------
+[fixes]
+
+# 网络问题：先跳过，由调用方决定稍后重试
+[[fixes.rules]]
+match = "Could not resolve host|Failed to connect|open git-upload-pack|unable to access|RPC failed"
+hint = "网络暂时不可用，跳过；稍后重试（可设代理）"
+skip = true
+
+# 路径/仓库问题：需要人工确认
+[[fixes.rules]]
+match = "fatal: not a git repository"
+hint = "该目录不是 git 仓库（或路径不对/未 git init），需要人工确认路径"
+ask_user = true
+
+# 配置漂移：applist.toml 里配的路径已不存在（插件被移除/改名/迁走）
+[[fixes.rules]]
+match = "路径不存在"
+hint = "配置里的路径已不存在（配置漂移）：核对插件/仓库是否被移除或改名，然后更新 applist.toml 的路径列表（权威是 ~/.dsh/profiles/*/package.json 的 link: 目标）"
+ask_user = true
+
+# git 合并冲突：需要人工解决
+[[fixes.rules]]
+match = "CONFLICT \\(content\\)|Merge conflict|Automatic merge failed"
+hint = "git 存在合并冲突，需要人工解决后重试"
+ask_user = true
+
+# 本地与上游分叉（两侧各有独有提交），fast-forward 拉不动 → 人工拍板，不自动 merge。
+# 2026-10-14 上游固化（6b26847），2026-10-15 合并进本 Windows 版：本机 2026-10-12 装的
+# 「自动 git merge --no-edit origin/main」规则在 10-15 实测翻车——update-app 自身 applist.toml
+# 两边都改过，merge 直接冲突并留下 MERGE_HEAD，下一次 run 变成 needs_input+脏工作区。
+# 怎么合（merge/rebase、本地提交要不要推）涉及未推送提交，CLI 不该替人决定。
+[[fixes.rules]]
+match = "Not possible to fast-forward, aborting|无法快进|无法在偏离的分支上进行快进"
+hint = "本地分支与 origin 分叉（本地有提交、远端也有新提交）：人工选一种合并方式（git merge --no-ff origin/main 或 git rebase origin/main），确认后再跑一次"
+ask_user = true
+
+# 本地有未提交修改（开发中 WIP）：绝不能自动丢弃，停下询问
+[[fixes.rules]]
+match = "cannot pull with rebase: You have unstaged changes|Your local changes (to the following files )?would be overwritten|Please commit (your changes )?or stash them"
+hint = "仓库有本地未提交修改（可能是 WIP）：需要确认是 stash/commit 后重试，还是跳过本次更新（先看 git status）"
+ask_user = true
+
+# DSH vendor 插件依赖悬空（自开发检出改名/移动导致）：症状见 ~/.dsh/skills/update-all
+[[fixes.rules]]
+match = "Cannot find package '@deepseek-ai/.*imported from .*dsh-extensions"
+hint = "dsh-extensions/vendor 插件依赖悬空：在 dsh-extensions 里重指悬空链接并重建，然后重启 dsh-web"
+ask_user = true
