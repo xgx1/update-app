@@ -1,10 +1,13 @@
 # AGENTS.md — update-app
 
-.NET 10 命令行工具：读 [`applist.toml`](applist.toml)，批量更新本机软件；配一个技能让 agent 会用这个 CLI。
+.NET 10 命令行工具：读 `applist.toml`（**在 `windows` / `linux` 分支上，不在 `main`**），批量更新本机软件；配一个技能让 agent 会用这个 CLI。
 **改代码前先读 [`README.md`](README.md)**（仓库构成、三类更新项、`[fixes.rules]` 语义、日志格式都在那里，本文不重复）。
 
 ## 这个仓库的规矩
 
+- **分支模型（2026-10-15）**：`main` = 通用部分（CLI + 技能 + 文档，**不含 `applist.toml`**）；
+  `windows` / `linux` = `main` + 各自那份 `applist.toml`。改代码/技能/文档在 `main`，改配置在自己
+  那个 OS 分支；通用改动改完 `git merge main` 进两个 OS 分支（只差一个文件，不会冲突）。
 - **两类内容同仓**：CLI 在仓库根（`Program.cs` / `Runner.cs` / `AppConfig.cs` / `ProcessRunner.cs` / `Logger.cs`），
   技能在 [`skills/update-all/SKILL.md`](skills/update-all/SKILL.md)。改 CLI 行为要同步技能里的判据，反之亦然。
 - **技能靠软链，不复制**：`~/projects/MyAI/dsh-extensions/install-skill.sh` 把 `skills/update-all` 软链到

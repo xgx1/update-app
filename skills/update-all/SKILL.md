@@ -35,6 +35,20 @@ needs_input → 处理 failed → **固化 fixes.rules** → 汇总 → 收尾�
 | 命令 shell | `/bin/sh -lc` | `cmd.exe /d /c`（自定义 command 用 cmd 语法） |
 | DSH 托管/重启 | systemd 用户服务 + 延时 `systemd-run` | 计划任务 `dsh-web` + `Stop/Start-ScheduledTask` |
 
+## 配置从哪来：main 通用，windows / linux 各带一份 `applist.toml`
+
+update-app 仓库（`github.com/xgx1/update-app`）**2026-10-15 起三分支**：
+
+| 分支 | 内容 | 你在哪台机器用 |
+|---|---|---|
+| `main` | 通用部分：CLI + 本技能 + `scripts/` + 文档。**没有 `applist.toml`** | 改代码/技能/规则语义 |
+| `windows` | `main` + Windows 版 `applist.toml`（scoop、`C:/Users/...`） | Windows：`git checkout windows` |
+| `linux` | `main` + Arch 版 `applist.toml`（pacman/yay/uv、`/home/sx/...`） | Arch：`git checkout linux` |
+
+**先确认自己在哪个分支**：`git -C <CLI 目录> branch --show-current` —— 不是 `windows`/`linux` 就
+`git checkout <对应的那个>`，否则 `applist.toml` 根本不在工作区（`validate` 会报配置不存在）。
+两个 OS 分支只比 `main` 多这一个文件，所以 `main` 的更新 `git merge main` 进自己分支永远不冲突。
+
 ## 一句话架构
 
 **update-app** CLI（.NET 10）读取 `applist.toml`，执行三类更新并把逐项结果写成结构化 JSON；
@@ -523,8 +537,9 @@ done
 ## Windows 支持
 
 > 本节是 Windows 上运行本技能所需的全部差异；未提到的按正文通用部分执行。
-> 参考配置：本机 `applist.toml` 是 **Windows 版**；Arch 版另存为同目录的
-> `applist.arch-linux.toml`。规范路径：`APP=C:\Users\Admin\Project\update-app`、
+> 参考配置：Windows 版 `applist.toml` 在**仓库的 `windows` 分支**上（工作分支就 checkout 它；
+> 2026-10-15 前的 `applist.arch-linux.toml` 副本已删——Arch 配置现在是 `linux` 分支的 `applist.toml`）。
+> 规范路径：`APP=C:\Users\Admin\Project\update-app`、
 > `WS=C:\Users\Admin\Project\MyAI`、`DSH_HOME=%USERPROFILE%\.dsh`。
 > `~/projects` 是指向 `~\Project` 的 junction，且 `Project` 目录**区分大小写**——路径统一写
 > `C:/Users/Admin/Project/...`（正斜杠，避免 TOML 反斜杠转义）。
@@ -594,8 +609,9 @@ $exe = (Get-Content "$APP\bin\current.json" -Raw | ConvertFrom-Json).exe
   验证：`& $exe validate` 应显示 `[ok] dotnet: C:\Program Files\dotnet\dotnet.exe`；
   且 `'[Environment]::GetEnvironmentVariable("DOTNET_ROOT","User")'` 为 `C:\Program Files\dotnet`。
   **每次 `scoop update *` 后都要复查这两个变量**（CLI 起不来时 fixes.rules 帮不上忙——它跑不起来就没机会匹配规则）。
-  根治选项（需用户拍板）：`scoop uninstall dotnet9-sdk`——本机没有任何 net9.0 目标项目，
-  两个 scoop dotnet 争同一个 `DOTNET_ROOT` 才是问题根源；保留则每次 scoop 更新后按上面重设。
+  根治选项（需用户拍板）：`scoop uninstall dotnet9-sdk`——2026-10-15 实测 `C:\Program Files\dotnet`
+  **已自带 SDK 9.0.317 + 运行时 9.0.19**（`dotnet --list-sdks` / `--list-runtimes`），scoop 那份
+  纯冗余；两个 scoop dotnet 争同一个 `DOTNET_ROOT` 才是问题根源。保留则每次 scoop 更新后按上面重设。
   （update-app 的 `ProcessRunner` 对子进程也会剥掉 `MSBuildSDKsPath`，CLI 内部构建不受影响。）
 
 ### W4. 命令语法（cmd，不是 sh）
@@ -609,8 +625,10 @@ $exe = (Get-Content "$APP\bin\current.json" -Raw | ConvertFrom-Json).exe
 - ⚠️ 若当前正从 `bin\Release\net10.0\update-app.dll` 运行，publish 会因该 dll 被自身锁定而
   失败（`MSB3027` / `MSB3021 ... being used by another process`）。做法：把 Release 产物**拷到
   临时目录**再从那里跑 `self`，或先结束占用进程。
-- `git pull` 要求工作树干净：Windows 版 `applist.toml` 是本机提交（`92b7c3c`，未推送）；若上游改了
-  同一文件，`--ff-only` 可能冲突 → 命中 WIP 规则转 `needs_input`，先问用户。
+- `git pull` 要求工作树干净：现在工作分支是 `windows`（`applist.toml` 跟着它走，不再与 `main`/Arch 版
+  抢同一个文件），所以配置改动**不再造成分叉**。`windows` 分支须有 upstream（`git push -u origin windows`
+  设过即可），否则 `git pull --ff-only` 会报「no tracking information」→ 未命中规则变 failed。
+  通用部分（CLI/技能）更新：`git fetch origin && git merge origin/main`。
 
 ### W6. DSH 托管与收尾重启（取代正文第 7 步）
 
