@@ -208,7 +208,8 @@ public sealed class Runner
         output.Contains("are still running") ||
         output.Contains("Manifest removed", StringComparison.OrdinalIgnoreCase) ||
         output.Contains("Couldn't find manifest", StringComparison.OrdinalIgnoreCase) ||
-        output.Contains("is not installed", StringComparison.OrdinalIgnoreCase);
+        output.Contains("is not installed", StringComparison.OrdinalIgnoreCase) ||
+        output.Contains("isn't installed", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>scoop 出错也返回 0（见 RunScoop 注释），失败只能从输出里认。</summary>
     private static bool LooksFailed(string output) =>
