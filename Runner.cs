@@ -165,10 +165,47 @@ public sealed class Runner
         var check = ProcessRunner.Run("scoop --version", null, 120);
         if (check.ExitCode != 0)
             return (false, "scoop 不可用: " + check.Output);
-        var apps = _cfg.Scoop.UpdateAll ? new[] { "*" } : _cfg.Scoop.Apps.ToArray();
-        var r = ProcessRunner.Run("scoop update " + string.Join(" ", apps), null, _timeout);
-        return (r.ExitCode == 0, r.Output);
+        if (!_cfg.Scoop.UpdateAll)
+        {
+            var one = ProcessRunner.Run("scoop update " + string.Join(" ", _cfg.Scoop.Apps), null, _timeout);
+            return (one.ExitCode == 0, one.Output);
+        }
+
+        // 逐个应用更新：`scoop update *` 遇到第一个下载错误就中止整条链，排在后面的应用静默漏更
+        // （2026-10-17：tencent-meeting 403 挡住 uv/wechat/zed 等 7 个）。占用进程/清单缺失算跳过，
+        // 重试也不会变，不当失败。
+        var outs = new List<string>();
+        var buckets = ProcessRunner.Run("scoop update", null, _timeout);
+        outs.Add("> scoop update\n" + buckets.Output);
+
+        var failures = 0;
+        foreach (var app in InstalledApps())
+        {
+            var r = ProcessRunner.Run("scoop update " + app, null, _timeout);
+            var skipped = r.ExitCode != 0 && IsSkippable(r.Output);
+            if (r.ExitCode != 0 && !skipped) failures++;
+            outs.Add($"> scoop update {app}\n{(skipped ? "[跳过] " : "")}{r.Output}");
+        }
+        return (failures == 0, string.Join("\n", outs));
     }
+
+    private static IEnumerable<string> InstalledApps()
+    {
+        var root = Environment.GetEnvironmentVariable("SCOOP");
+        if (string.IsNullOrEmpty(root))
+            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "scoop");
+        var dir = Path.Combine(root, "apps");
+        if (!Directory.Exists(dir)) return Array.Empty<string>();
+        return Directory.GetDirectories(dir).Select(Path.GetFileName).Where(n => !string.IsNullOrEmpty(n)).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)!;
+    }
+
+    /// <summary>应用被占用 / 清单已被上游删除：本次跳过，不算失败。</summary>
+    private static bool IsSkippable(string output) =>
+        output.Contains("Running process detected") ||
+        output.Contains("are still running") ||
+        output.Contains("Manifest removed", StringComparison.OrdinalIgnoreCase) ||
+        output.Contains("Couldn't find manifest", StringComparison.OrdinalIgnoreCase) ||
+        output.Contains("is not installed", StringComparison.OrdinalIgnoreCase);
 
     private static string Expand(string template, string path)
     {
