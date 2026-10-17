@@ -696,3 +696,6 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3080 -MaximumRedirection 0 -
 | 每轮都「重指 update-all」且 `ln` 报错 | `~/projects` 是指向 `~/Project` 的 junction：`readlink -f` 解析出真实路径，与字面量比必然不等。`install-skill.sh` 已改为两边都取物理路径再比（`pwd -P`） |
 | `scoop update` 报 `error: Pulling is not possible because you have unmerged files` + `scoop status` 报 `Error parsing JSON at '…\bucket\<app>.json'` | 某个 bucket 停在**中断的 rebase/merge**（本例 nonportable：`unity-hub-np.json` 三方冲突）。修法：`git -C ~/scoop/buckets/<bucket> rebase --abort` → `fetch` → `reset --hard origin/master`（本地那个「改 hash」提交是浮动的下载链接哈希，上游也会反复过期，丢掉即可） |
 | `scoop status` 显示有新版本但本次 `scoop update` 没升（nodejs-lts/uv/pwsh/wechat/pixpin） | **进程占用**：scoop 检测到 `Running process detected` 就不升。关掉对应程序（nodejs-lts 是 DSH 自己，pwsh 是当前 shell，别在本轮杀）后单独 `scoop update <app>` |
+| 从「非 scoop 安装」迁移到 scoop/winget 时，`scoop install` 在**卸载完成后**才报 `is not valid` / 403（kook 实测） | 清单 URL 有防盗链或签名过期：应用已被卸载、装不回来。**顺序改成先验证能装再卸载**：`scoop download <app>` 或看 `scoop info <app>`；403 就直接放弃迁移。恢复：去官网下安装包手动装 |
+| Inno Setup 卸载器 `unins000.exe /SILENT` 卡住不动（Core Temp 实测） | `/SILENT` 仍会弹隐藏确认框。用 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`。另：卸载器可能只清注册表、留文件（进程锁着就删不掉），别当失败 |
+| winget 装 zip 型包（MCHOSE HUB）`--silent` 静默失败、`winget list` 查不到 | 手动：`curl` 下 zip → 解压 → `Start-Process <setup>.exe -ArgumentList '/S' -Wait`（electron-builder NSIS 认 `/S`），装完 `winget list` 会自动认出（ARP 登记） |

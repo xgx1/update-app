@@ -63,6 +63,13 @@ command = "pwsh -NoProfile -File C:/Users/Admin/Project/update-app/scripts/updat
 # ---------------------------------------------------------------------------
 [fixes]
 
+# scoop 清单里的下载地址有防盗链/签名过期：403 只有在**卸载完 old 版本之后**才暴露，
+# 会把应用留在「已卸载、装不回来」的状态（2026-10-17 kook 实测）。迁移前先 dry-run 下载。
+[[fixes.rules]]
+match = "kookapp\\.cn.*is not valid|Please try again or create a new issue"
+hint = "scoop 清单下载被 403（防盗链/签名过期）：该应用无法用 scoop 装，去官网手动装"
+skip = true
+
 # 网络问题：先跳过，由调用方决定稍后重试
 [[fixes.rules]]
 match = "Could not resolve host|Failed to connect|open git-upload-pack|unable to access|RPC failed"
