@@ -168,12 +168,14 @@ public sealed class Runner
         if (!_cfg.Scoop.UpdateAll)
         {
             var one = ProcessRunner.Run("scoop update " + string.Join(" ", _cfg.Scoop.Apps), null, _timeout);
-            return (one.ExitCode == 0, one.Output);
+            return (one.ExitCode == 0 && !LooksFailed(one.Output), one.Output);
         }
 
         // 逐个应用更新：`scoop update *` 遇到第一个下载错误就中止整条链，排在后面的应用静默漏更
         // （2026-10-17：tencent-meeting 403 挡住 uv/wechat/zed 等 7 个）。占用进程/清单缺失算跳过，
         // 重试也不会变，不当失败。
+        // 注意 scoop 经 cmd.exe 的 shim 跑，出错也返回 0（2026-10-17 实测 `cmd /d /c scoop update
+        // tencent-meeting` 403 失败仍 EXIT=0），所以成败只能看输出，不能信退出码。
         var outs = new List<string>();
         var buckets = ProcessRunner.Run("scoop update", null, _timeout);
         outs.Add("> scoop update\n" + buckets.Output);
@@ -182,9 +184,10 @@ public sealed class Runner
         foreach (var app in InstalledApps())
         {
             var r = ProcessRunner.Run("scoop update " + app, null, _timeout);
-            var skipped = r.ExitCode != 0 && IsSkippable(r.Output);
-            if (r.ExitCode != 0 && !skipped) failures++;
-            outs.Add($"> scoop update {app}\n{(skipped ? "[跳过] " : "")}{r.Output}");
+            var skipped = IsSkippable(r.Output);
+            var failed = !skipped && LooksFailed(r.Output);
+            if (failed) failures++;
+            outs.Add($"> scoop update {app}\n{(skipped ? "[跳过] " : failed ? "[失败] " : "")}{r.Output}");
         }
         return (failures == 0, string.Join("\n", outs));
     }
@@ -206,6 +209,13 @@ public sealed class Runner
         output.Contains("Manifest removed", StringComparison.OrdinalIgnoreCase) ||
         output.Contains("Couldn't find manifest", StringComparison.OrdinalIgnoreCase) ||
         output.Contains("is not installed", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>scoop 出错也返回 0（见 RunScoop 注释），失败只能从输出里认。</summary>
+    private static bool LooksFailed(string output) =>
+        output.Contains("ERROR ") ||
+        output.Contains("Download failed") ||
+        output.Contains("is not valid") ||
+        output.Contains("Install failed");
 
     private static string Expand(string template, string path)
     {

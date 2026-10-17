@@ -61,6 +61,14 @@ match = "Could not resolve host|Failed to connect|open git-upload-pack|unable to
 hint = "网络暂时不可用，跳过；稍后重试（可设代理）"
 skip = true
 
+# Scoop 上游镜像给个别应用的包返回 403（2026-10-17 tencent-meeting 3.46.11.413：scoopet 清单里的
+# updatecdn.meeting.qq.com 链接已失效，aria2 与内置下载器都 403）。本地重试无解，标跳过等清单修；
+# 着急用就从官网手动装。匹配单行（规则是逐行正则，不跨行）。
+[[fixes.rules]]
+match = "updatecdn\\.meeting\\.qq\\.com.*is not valid"
+hint = "Scoop 无法下载 tencent-meeting 新版（上游镜像 403，本地无解）：需要时从官网手动装，或等清单换源"
+skip = true
+
 # 路径/仓库问题：需要人工确认
 [[fixes.rules]]
 match = "fatal: not a git repository"
