@@ -50,6 +50,14 @@ paths = [
 ]
 command = "git -C {path} fetch -q origin && git -C {path} rev-list --count HEAD..FETCH_HEAD"
 
+# 技能子模块：skills/ 下每组都是一个独立仓 + submodule，父仓 git pull 不会动它们，
+# 也不会给 ~/.dsh/skills 补新技能的软链。脚本做三件事：快进 skills/* → 有变化就在父仓
+# 本地提交指针（防脏指针挡住下一轮 pull）→ install-skill.sh 重建软链（需 MSYS=nativestrict）。
+[[special.items]]
+name = "技能子模块更新"
+paths = ["C:/Users/Admin/Project/MyAI/dsh-extensions"]
+command = "pwsh -NoProfile -File C:/Users/Admin/Project/update-app/scripts/update-skills.ps1 -Repo C:/Users/Admin/Project/MyAI/dsh-extensions"
+
 # ---------------------------------------------------------------------------
 # 4. 已知问题自愈规则
 # ---------------------------------------------------------------------------

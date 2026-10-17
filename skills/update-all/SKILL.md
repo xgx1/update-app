@@ -571,8 +571,20 @@ paths = [
   "C:/Users/Admin/Project/MyAI/dsh-extensions/vendor/billion-context",
 ]
 command = "git -C {path} fetch -q origin && git -C {path} rev-list --count HEAD..FETCH_HEAD"
+
+# 技能子模块（父仓 pull 不会动 submodule，也不会补 ~/.dsh/skills 软链）
+[[special.items]]
+name = "技能子模块更新"
+paths = ["C:/Users/Admin/Project/MyAI/dsh-extensions"]
+command = "pwsh -NoProfile -File C:/Users/Admin/Project/update-app/scripts/update-skills.ps1 -Repo C:/Users/Admin/Project/MyAI/dsh-extensions"
 ```
 
+- **技能更新必须单独配一项**：`dsh-extensions/skills/<分组>` 是 submodule，`[special.items]` 里那条
+  「dsh 插件源码」只 `git pull` 父仓，技能内容与 `~/.dsh/skills` 软链都不会变。`scripts/update-skills.ps1`
+  做三件事：`git submodule update --init --remote -- skills`（只碰 skills/，vendor/ 保持只检测）→
+  指针有变化就在父仓**本地提交**（不 push；脏指针会挡住下一轮父仓 `pull --ff-only`）→
+  `install-skill.sh` 重建软链。脚本**不加 `--recursive`**：`rea` 的三级子模块含 Windows 非法文件名
+  （`unblob` 测试样本），递归会让整次更新 fatal。
 - 权威文件：`C:\Users\Admin\Project\update-app\applist.toml`。本机第三方 vendor **只有**
   `dsh-genui` 与 `billion-context`（**没有** `dsh-toolkit` / `dsh-evolve-modes`）。
 - `[fixes.rules]` 保留通用规则（网络 / 非 git / 路径漂移 / 冲突 / WIP）即可；pacman/yay 那几条
@@ -680,3 +692,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3080 -MaximumRedirection 0 -
 | `scoop` 命令不可用 | 在 PowerShell 里确认 `scoop --version`；缺则重装/修 PATH |
 | `Could not resolve host` / `unable to access` | 网络 / 代理：设 `$env:HTTP_PROXY`、`$env:HTTPS_PROXY` 后重试（规则已 skip） |
 | `fatal: not a git repository` / 冲突 / WIP | 同正文，规则已 ask_user |
+| `install-skill.sh` 报 `ln: failed to create symbolic link …: Not a directory`，或 `~/.dsh/skills` 下出现**真实目录**（不是软链） | 调 `install-skill.sh` 时没设 `MSYS=winsymlinks:nativestrict`：MSYS 的 `ln -s` 在 Windows 上会静默**复制目录**。修法：`MSYS=winsymlinks:nativestrict ./install-skill.sh --force`（真实目录先备份到 `~/.dsh/skill-backups/`），并清掉复制出来的临时目录 |
+| 每轮都「重指 update-all」且 `ln` 报错 | `~/projects` 是指向 `~/Project` 的 junction：`readlink -f` 解析出真实路径，与字面量比必然不等。`install-skill.sh` 已改为两边都取物理路径再比（`pwd -P`） |
+| `scoop update` 报 `error: Pulling is not possible because you have unmerged files` + `scoop status` 报 `Error parsing JSON at '…\bucket\<app>.json'` | 某个 bucket 停在**中断的 rebase/merge**（本例 nonportable：`unity-hub-np.json` 三方冲突）。修法：`git -C ~/scoop/buckets/<bucket> rebase --abort` → `fetch` → `reset --hard origin/master`（本地那个「改 hash」提交是浮动的下载链接哈希，上游也会反复过期，丢掉即可） |
+| `scoop status` 显示有新版本但本次 `scoop update` 没升（nodejs-lts/uv/pwsh/wechat/pixpin） | **进程占用**：scoop 检测到 `Running process detected` 就不升。关掉对应程序（nodejs-lts 是 DSH 自己，pwsh 是当前 shell，别在本轮杀）后单独 `scoop update <app>` |
