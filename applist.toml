@@ -58,6 +58,14 @@ name = "技能子模块更新"
 paths = ["C:/Users/Admin/Project/MyAI/dsh-extensions"]
 command = "pwsh -NoProfile -File C:/Users/Admin/Project/update-app/scripts/update-skills.ps1 -Repo C:/Users/Admin/Project/MyAI/dsh-extensions"
 
+# scoop 版 Blender 的用户脚本在 `apps\blender\<版本>\portable\scripts\`，`current` 是 junction：
+# `scoop update blender` 换版本后 addon（blender_mcp.py）不会跟过去，DSH 的 blender 插件随即报
+# blender-unreachable。主副本存在本仓 scripts/blender-addon/，这里把它同步进当前版本目录（幂等）。
+[[special.items]]
+name = "Blender addon 重放（scoop 升级后）"
+paths = ["C:/Users/Admin/scoop/apps/blender"]
+command = "pwsh -NoProfile -File C:/Users/Admin/Project/update-app/scripts/post-scoop-blender-addon.ps1"
+
 # ---------------------------------------------------------------------------
 # 4. 已知问题自愈规则
 # ---------------------------------------------------------------------------
