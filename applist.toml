@@ -161,6 +161,23 @@ match = "Could not resolve host|Failed to connect|open git-upload-pack|unable to
 hint = "网络暂时不可用，跳过；稍后可由用户触发重试（可设代理 http://127.0.0.1:7897）"
 skip = true
 
+# pacman 下载 404（镜像 rebuild 窗口）：某版本在所有镜像都被清掉 = 本地同步库落后于镜像文件树。
+# 2026-10-23 实证：haskell-* 全镜像 404，重新 `pacman -Syy` 取到的仍是旧库（db 来源镜像自身滞后）；
+# 正解是临时把 db 与文件一致的镜像（geo.mirror.pkgbuild.com）置顶跑 -Syyu，成功后还原 mirrorlist。
+# 这一步改动机器级配置，故降级 needs_input，由 AI/用户拍板。
+[[fixes.rules]]
+match = "无法获取某些文件|无法从 .* 获取文件|The requested URL returned error: 404|failed to retrieve some files"
+hint = "镜像 rebuild 窗口：本地同步库落后于镜像文件树，某些版本已被全镜像清掉。处置：备份 /etc/pacman.d/mirrorlist → 把 Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch 置顶 → sudo pacman -Syyu --noconfirm → 成功后还原 mirrorlist；或等镜像收敛后重跑。绝不要 pacman -Sy。"
+ask_user = true
+
+# pacman 库锁被占用（另一个 pacman/yay 正在跑）：2026-10-23 实证——用户自己的 yay -Syyu 持锁，
+# 本项报文是「failed to synchronize all databases (unable to lock database)」，被下面的网络规则
+# 误判成镜像问题、给了错提示。锁被活进程持有 = 系统更新已在别处进行，跳过即可；残留锁才删。
+[[fixes.rules]]
+match = "unable to lock database|unable to lock the database"
+hint = "pacman 库锁被占用：pgrep -x pacman 有活进程（比如用户自己在跑 yay -Syyu）说明系统更新已在进行，本次跳过；确认无进程才是残留锁，删 /var/lib/pacman/db.lck 后重试"
+skip = true
+
 # pacman 同步失败（镜像/网络）：跳过，稍后重试或换镜像
 [[fixes.rules]]
 match = "failed to synchronize all databases"

@@ -65,6 +65,11 @@ update-app 仓库（`github.com/xgx1/update-app`）**2026-10-15 起三分支**�
 
 ## 前置检查
 
+0. **分支必须先对**：`git -C ~/projects/update-app rev-parse --abbrev-ref HEAD` 必须是 `linux`。
+   `main` 分支按设计**不含 `applist.toml`**（2026-10-15 三分支模型：main 通用 / windows / linux 各带一份配置）。
+   2026-10-23 实证事故：本机停在 `main` 时跑 `run`，第一项「update-app」自己的 `git pull` 把仓库拉到
+   `chore: applist.toml 移到 windows/linux 分支`，**当场删掉了正在用的 applist.toml**（本次运行因配置已
+   载入内存而照跑，下次直接「找不到配置文件」）。修复：`git switch -c linux --track origin/linux`。
 1. **配置文件**：`~/projects/update-app/applist.toml`（修改后请向用户确认再动）。
    该文件**已全部改为 Arch 路径**（2026-09-13 复核：表内 8 条路径全部存在），不再是 Windows 迁移残留。
 2. **CLI 自举**：`~/projects/update-app/bin/current.json` 里的 `exe` 字段。
@@ -416,7 +421,8 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
 | `fatal: not a git repository` | 路径不是 git 仓库：确认路径 / `git init`，规则已 ask_user |
 | `CONFLICT` / `Automatic merge failed` | 上游冲突：人工解决（保留双方改动），规则已 ask_user |
 | `cannot pull with rebase: You have unstaged changes` / `Your local changes would be overwritten` / `Please commit your changes or stash them` | 仓库有 WIP：先 `git -C <path> status` 看改动，向用户确认 stash/commit/跳过，规则已 ask_user（git 的 rebase/merge 两种文案都已覆盖） |
-| `failed to init transaction (unable to lock database)` / `database is locked` | pacman 锁残留：确认无 pacman 进程后 `sudo rm /var/lib/pacman/db.lck` 重试（可固化规则） |
+| `failed to init transaction (unable to lock database)` / `failed to synchronize all databases (unable to lock database)` / `database is locked` | **先分清是谁持锁**：`pgrep -x pacman` / `pgrep -af 'yay -S'` 有活进程（常见是用户自己在终端跑 `yay -Syyu`，持锁可达数小时）⇒ 系统更新已在别处进行，本次跳过即可，**别删锁**（删了会砸掉正在跑的事务）；确认无进程才是残留锁，`sudo rm /var/lib/pacman/db.lck` 后重试。**注意报文陷阱**：持锁时 pacman 打的是「failed to synchronize all databases (unable to lock database)」，会被上面的网络规则先命中、给出「换镜像」的错误提示——已固化专门的 `unable to lock database` 规则置于网络规则之前 |
+| `无法获取某些文件` / `The requested URL returned error: 404` / `failed to retrieve some files`（单包级，全镜像 404） | **镜像 rebuild 窗口**：本地同步库落后于镜像文件树，被升级的版本已从所有镜像清掉（2026-10-23 实证：Arch Haskell 重建潮，`haskell-*` 全镜像 404，连 `pacman -Syy` 取回的仍是旧库）。处置：备份 `/etc/pacman.d/mirrorlist` → 把 `Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch` 置顶 → `sudo pacman -Syyu --noconfirm` → 成功后还原 mirrorlist（geo 的 db 与文件树一致）。**绝不要 `pacman -Sy`**（部分升级）；也别用 `--ignore` 逐个跳过缺失包：一次只忽略几个，下一轮又冒出新的一批，白折腾。 |
 | `invalid or corrupted package (PGP signature)` / `failed to commit transaction` | keyring 过期：`sudo pacman-key --refresh-keys` 或 `sudo pacman -Sy archlinux-keyring` 后重试 |
 | `target not found` / `failed to synchronize all databases (unable to lock database)` / 镜像问题 | 换镜像 `sudo pacman-mirrors -c China`（或编辑 /etc/pacman.d/mirrorlist），重试；AUR 包不存在则确认包名 |
 | `yay` 交互卡死超时 | 非 TTY 环境跑 `yay` 必须带 `--noconfirm`（与 ansible 无关的确认项会挂住）；要人工确认的在终端手动跑 |
