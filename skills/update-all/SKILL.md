@@ -393,7 +393,7 @@ p=$(ss -tlnpH 'sport = :8791' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
 ```sh
 cd ~/projects/MyAI/dsh-extensions/vendor/<插件>
 pnpm install --frozen-lockfile   # 上游 lock 变了就必须先装
-pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc && tsdown；evolve-modes=tsdown+归一化产物
+pnpm run build                   # 各仓脚本不同（tsc+tsdown / tsdown 等），用插件自己的 package.json 脚本
 ```
 
 - **先核对 peer/engines 与 harness 版本兼容**再重建：`jq -r .peerDependencies package.json` 与
@@ -403,11 +403,11 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
   并在报告里说明「重建了什么、重启后生效」。
 - `dsh-evolve-modes` 这类自研/自有 fork 若是**本地提交领先上游**（`git status -sb` 显示 `[领先 N]`），
   `git pull` 不动它，`fetch` 检测会报「上游无新提交」——指针与推送按 AGENTS.md 的 submodule 规矩单独处理。
-- ⚠️ **submodule 路径 pull 完要落一条指针提交（2026-09-30 固化）**：`vendor/dsh-genui`、`dsh-toolkit`、
-  `dsh-evolve-modes` 都是 `dsh-extensions` 的 submodule，fast-forward 之后父仓库会变成
-  `M vendor/dsh-genui`。这个脏指针**会挡住下一次 `git pull --ff-only`**（报
+- ⚠️ **submodule 路径 pull 完要落一条指针提交（2026-09-30 固化）**：`vendor/billion-context` 等
+  `dsh-extensions` 的 submodule，fast-forward 之后父仓库会变成
+  `M vendor/billion-context`。这个脏指针**会挡住下一次 `git pull --ff-only`**（报
   `Your local changes to the following files would be overwritten`，命中 WIP 规则降级成 needs_input，
-  每次都要人工介入）。正确收尾：`git -C ~/projects/MyAI/dsh-extensions add vendor/dsh-genui &&
+  每次都要人工介入）。正确收尾：`git -C ~/projects/MyAI/dsh-extensions add vendor/billion-context &&
   git commit -m "chore(submodule): bump …"`（**只提交指针，别顺手把别人的本地提交一起推**——
   push 与否交用户拍板）。同仓 `plugins/` 下（如 `dsh-laya-router`）不是 submodule，源码改了要
   自己 `pnpm run build`，产物时间戳比对同样适用。
@@ -432,7 +432,7 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
 | 配置里路径报「不存在」（`~/...` 路径，2026-09-20 起） | **配置漂移**：该插件/仓库已被删除或改名。已固化成 fixes.rule → `needs_input`，把漂移事实摆给用户拍板后改 applist.toml（权威是 `~/.dsh/profiles/*/package.json` 的 `link:` 目标）。实例：`dsh-drop-to-path` 被移除、`vendor/dsh-evolve-modes` 新挂 |
 | 服务启动即崩：journal 里 `error while loading shared libraries: libXXX.so.N` + `status=127` | 系统升级把某个依赖的 **SONAME 换代**了（2026-09-18 实例：protobuf 36.0→36.1，`libprotobuf-lite.so.36.0.0` 消失，`vinput-daemon` 连崩三次；真正缺库的是**传递依赖** `libonnxruntime.so.1`，归属包 `onnxruntime-cpu` 当时还没重建）→ 按下方「更新后缺库体检」处置 |
 | `swaync.service` 长期 failed（`start-limit-hit`），journal 反复 `An instance of SwayNotificationCenter is already running!` | **假失败，别修进程**：`~/.config/hypr/hyprland.lua` 的 `hl.exec_cmd("swaync")` 已由 WM 拉起实例并持有 `org.freedesktop.Notifications`，systemd 单元（`Type=dbus` + 同名 BusName）必然抢不到名字 → exit 1 → `Restart=on-failure` 打满 `StartLimitBurst` → `start-limit-hit`。正确处置是关掉冗余单元：`systemctl --user disable --now swaync.service && systemctl --user reset-failed swaync.service`（2026-09-20 已修：单元 `MainPID=0`，停它不会碰 WM 那个实例）。验活：`busctl --user list | grep org.freedesktop.Notifications` 应仍由 WM 的 swaync 持有，再 `notify-send` 投一条实测链路。两种拉起顺序都收敛到同一个 daemon，所以这只产生假失败、不会真断通知。注意 `preset: enabled`——跑过 `systemctl --user preset` / `enable --all` 会把它重新启用，届时按本行再关一次 |
-| ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是（2026-09-20 核对）：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-evolve-modes}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入；`dsh-drop-to-path` 同日已删）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**⚠️ pull 只是刷新源码**：这类插件加载的是各仓库自己的 `lib/`/`dist/` 构建产物，`git pull` 后不 `pnpm build` 则运行行为仍是旧版（2026-09-20 dsh-genui 0.10→0.11.1-preview.2 实测：lib/client.js 还是 9月12日 的旧产物）。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`、`vendor/dsh-drop-to-path`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
+| ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 `link:` 目标以 `~/.dsh/profiles/web/package.json` 为权威（2026-11-01 核对，9 条）：`dsh-extensions/vendor/{dsh-blender-plugin,OpenViking/examples/dsh-memory-plugin,billion-context,dsh-ops}`（第三方）、`dsh-extensions/plugins/{dsh-dracula-theme,dsh-llm-retry-schedule,dsh-perf-mode,dsh-sidebar-taskbar,dsh-task-manager}`（自研）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**⚠️ pull 只是刷新源码**：这类插件加载的是各仓库自己的 `lib/`/`dist/` 构建产物，`git pull` 后不 `pnpm build` 则运行行为仍是旧版（2026-09-20 dsh-genui 0.10→0.11.1-preview.2 实测：lib/client.js 还是 9月12日 的旧产物）。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`、`vendor/dsh-drop-to-path`、`vendor/dsh-genui`（2026-11-01 用户确认插件不用，submodule 已移除、profile 引用 2026-10-14 已摘）。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
 | `plugin tree failed to load: dsh: N entries did not activate`（含 `pending (waiting for service: sandboxPolicy)`） | profile patch 把 `sandbox-policy` 关掉了：0.1.5 起必须挂载（见「DSH harness 大版本升级」节）。改 `~/.dsh/profiles/web/cordis.patch.yml` 注释掉该 disabled 行后重启 dsh-web |
 | 页面 `Failed to load plugins` + 控制台 `require("@deepseek-ai/dsh-client-…") missed the module table` | 自建客户端插件还在引用旧平台包：改 import 到现行 seed（`dsh-client-store` 等）并同步 tsdown `external`，`pnpm build` 后刷新页面 |
 | dsh-web 反复重启（`systemctl --user show dsh-web -p NRestarts` 很大） | 先看 `journalctl --user -u dsh-web -n 60`：多半是插件树 pending / patch 语法错误。**别让它在崩溃循环里放着**——每 3s 重试一次；修好 patch 后按第 7 步排程延时重启（先说明修了什么，再让重启发生） |
