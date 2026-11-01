@@ -12,7 +12,12 @@ set -u
 fail=0
 
 stale() { # stale <pid> <exe-path>
-  [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -e "$2" ] && [ "$2" -nt "/proc/$1" ]
+  # 2026-11-01 修：readlink -f 对「已被替换的二进制」会返回带 " (deleted)" 后缀的路径，
+  # -e 判存在直接失败 → 升级后的进程全被误判成「已是最新」（rayburst 实测漏重启）。
+  # 去掉后缀再比 mtime：进程还在跑被换掉的旧 inode，本来就是陈旧。
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || return 1
+  exe=${2% (deleted)}
+  [ -e "$exe" ] && [ "$exe" -nt "/proc/$1" ]
 }
 
 restart_unit() { # restart_unit <unit 名，不带 .service>
