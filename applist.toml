@@ -38,10 +38,13 @@ path = "/var/cache/pacman/pkg"
 command = "sudo pacman -Syu --noconfirm"
 
 # AUR 更新：yay -Sua（只更新 -A 装的 AUR 包，不动仓库包；--noconfirm 跳过交互确认）
+# 2026-11-01：--answerdiff None --answerclean All 必须带——已存在 Build Files 的包升级时 yay 会问
+#   "Packages to cleanBuild?" / "Diffs to show?"，这两个选择型提示 --noconfirm 关不掉，无 TTY 下
+#   直接挂住整轮 run（实测 5 分半后失败）。answerdiff=None 不看 diff、answerclean=All 清构建目录。
 [[source.projects]]
 name = "yay AUR 更新"
 path = "/home/sx/.cache/yay"
-command = "yay -Sua --noconfirm"
+command = "yay -Sua --noconfirm --answerdiff None --answerclean All"
 # 2026-10-14 加：AUR 换的只是磁盘文件，运行中的 GUI/常驻进程仍旧代码——clash-verge 升级后
 # 会一直显示旧版本直到下次登录（pacman 脚本明写要重启）。后置脚本按「二进制 mtime 晚于
 # 进程启动时间」判定陈旧并重启（rayburst/motrix-next 单元、clash-verge GUI、特权服务）。
@@ -60,7 +63,10 @@ post_commands = ["bash /home/sx/projects/update-app/scripts/post-aur-restart.sh"
 [[source.projects]]
 name = "codebase-memory-mcp (uv tool)"
 path = "/home/sx/.local/share/uv/tools/codebase-memory-mcp"
-command = "/home/sx/.local/bin/uv tool upgrade codebase-memory-mcp && systemctl --user restart codebase-memory.service"
+# 2026-11-01：命令前必须自带 XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS——CLI 子进程
+#   （尤其后台任务）常剥掉这两个变量，systemctl --user 会报 "Failed to connect to user scope
+#   bus via local transport"，还会被网络规则的 "Failed to connect" 误命中成「网络问题跳过」。
+command = "export XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus && /home/sx/.local/bin/uv tool upgrade codebase-memory-mcp && systemctl --user restart codebase-memory.service"
 
 # ── 2026-09-12 纳入：工作区里其余「有上游」的源码仓库 ────────────────────────
 # 此前不在覆盖内，需人工 pull；纳入后一次 run 全覆盖。
@@ -226,6 +232,15 @@ ask_user = true
 match = "unable to lock database|database is locked|failed to init transaction"
 hint = "pacman 数据库锁残留：确认无 pacman/yay 进程运行后清锁重试"
 command = "if pgrep -x pacman >/dev/null || pgrep -f 'makepkg|yay' >/dev/null; then echo 'pacman/yay 仍在运行，跳过清锁'; exit 1; fi; sudo rm -f /var/lib/pacman/db.lck"
+
+# yay 交互提示挂住（cleanBuild / Diffs to show）：这两个选择型提示 --noconfirm 关不掉。
+# 2026-11-01 实证：4 个 AUR 包待升级、Build Files Exist → yay 停在提示上整轮失败。
+# 处置：带 --answerdiff None --answerclean All 重跑（yay 命令本身已改带这两个 flag，这里是兜底）。
+[[fixes.rules]]
+match = "Packages to cleanBuild\\?|Diffs to show\\?"
+hint = "yay 的选择型交互提示（--noconfirm 关不掉）：带 --answerdiff None --answerclean All 重跑"
+command = "yay -Sua --noconfirm --answerdiff None --answerclean All"
+retry = true
 
 # pacman keyring 过期（PGP 签名校验失败）：需要联网刷 keyring，让用户/AI 处理
 [[fixes.rules]]

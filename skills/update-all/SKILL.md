@@ -118,7 +118,10 @@ command = "yay -Sua --noconfirm"
 BIN=~/projects/update-app/bin
 DLL=$(jq -r .exe $BIN/current.json 2>/dev/null | grep '\.dll$')
 [ -n "$DLL" ] || DLL=$(ls -1dt $BIN/2026*/ | head -1)update-app.dll
-dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运行
+# ⚠️ 必须用 ~/.dotnet/dotnet 启动 CLI：pacman 升级 dotnet-runtime 会当场换掉
+#   /usr/share/dotnet 的文件，运行中的 CLI 再懒加载 System.Text.* 就崩（2026-11-01 实证，
+#   3 个 item 假失败 + summary 都没写出来）。~/.dotnet 是 dotnet-install 装的，pacman 碰不到。
+~/.dotnet/dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运行
 ```
 
 常用子命令：`run`（执行）、`list`（看配置）、`validate`（校验路径/依赖）、`self`（自更新发布）；
@@ -164,7 +167,7 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
 
 - 现象：直接调 current.json 的 dll 报错/起不来；或 publish 失败。
 - 处理：更新它本身 —— `git -C ~/projects/update-app pull`（有 remote 时），
-  修代码 bug，然后 `dotnet "$DLL" self --repo ~/projects/update-app -c ~/projects/update-app/applist.toml`
+  修代码 bug，然后 `~/.dotnet/dotnet "$DLL" self --repo ~/projects/update-app -c ~/projects/update-app/applist.toml`
   重新发布（会写入新的 current.json：Arch 上 `exe` 字段为 `update-app.dll` 路径），再重跑全流程。
 - `self` 内部用 DotnetResolver 按「SDK 版本最高」自动选 dotnet（→ `~/.dotnet/dotnet` 10.0.400）；两份都没了才需重建，
   重建走 `sudo pacman -S dotnet-sdk`（extra 源）或用 dotnet-install 装回 `~/.dotnet`（后者版本更新，会被优先选中）。
@@ -416,7 +419,9 @@ pnpm run build                   # 各仓脚本不同（tsc+tsdown / tsdown 等�
 
 | 日志特征（match） | 处理 |
 |---|---|
-| `Could not resolve host` / `Failed to connect` / `unable to access` / `open git-upload-pack` | 网络问题，规则已跳过；可设代理 `http://127.0.0.1:7897` 后重试（clash-verge 默认端口） |
+| `Could not resolve host` / `Failed to connect` / `unable to access` / `open git-upload-pack` | 网络问题，规则已跳过；可设代理 `http://127.0.0.1:7897` 后重试（clash-verge 默认端口）。⚠️ 先排除误命中：`Failed to connect to user scope bus via local transport` 不是网络问题，是 CLI 子进程缺 `XDG_RUNTIME_DIR`（见本节末两行） |
+| `Could not load file or assembly 'System.Text.*'`（run 跑到一半，多个 item 接连假失败、最后 summary 都写不出） | **pacman 当场升级了 dotnet-runtime**，运行中的 CLI 懒加载框架程序集时文件已被换掉。不是代码 bug：用 `~/.dotnet/dotnet` 启动 CLI 即可免疫（pacman 管不到那份），然后 `run --only <name>` 补跑假失败的项（2026-11-01 实证：pacman 项把 dotnet-runtime 10.0.13→10.0.14，yay/cbm/genui 三项连崩） |
+| `Failed to connect to user scope bus via local transport: $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined` | 命令里用了 `systemctl --user` 但 CLI 子进程没有用户总线环境（后台任务常剥掉这两个变量），还会被上面网络规则的 `Failed to connect` 误命中。处置：命令前加 `export XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus &&`（cbm 项已这么写） |
 | `git push` 报 `Failed to connect` / `Connection was reset` | 先查代理：`ss -tlnp \| grep 7897`（或 `curl -x http://127.0.0.1:7897 -sI https://github.com`）；端口在听仍失败 = 代理上游问题，本地 commit 不受影响，等网络恢复后重试 push |
 | `fatal: not a git repository` | 路径不是 git 仓库：确认路径 / `git init`，规则已 ask_user |
 | `CONFLICT` / `Automatic merge failed` | 上游冲突：人工解决（保留双方改动），规则已 ask_user |
