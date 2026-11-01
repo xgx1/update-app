@@ -186,21 +186,15 @@ DLL=$(jq -r .exe $BIN/current.json 2>/dev/null | grep '\.dll$')
 不要求重启系统**（内核等系统级更新后是否重启系统，由用户另行择机决定，与本次收尾无关）。
 
 本机 DSH 由 **systemd 用户服务**托管（不是 PM2），服务在 `~/.config/systemd/user/`。
-2026-09-30 实测清单（旧版只写「dsh-web + headroom-deepseek 两个」，已漂移，**别照抄旧清单**）：
+**2026-11-01 实测清单**（这张表漂移过三次，动手前一律用 `systemctl --user list-units --type=service --state=running` 复核，别照抄）：
 
 | 单元 | 端口 | 说明 |
 |---|---|---|
 | `dsh-web.service` | :3080 | 生产页面（**当前对话就在这里**）→ 只能延时重启 |
 | `dsh-web-dev.service` | :3081 | dev worktree 实例（`DSH_HOME=~/.dsh-dev`），2026-09-27 起重新上线 |
-| `headroom-deepseek.service` | :8787 | **DSH 默认模型的流量就走这里**（`settings.yaml` 的 `baseURL`）→ 见下方重启注意 |
-| `headroom-sensenova.service` | :8788 | SenseNova token-plan 代理 |
-| `headroom-step.service` | :8789 | StepFun Step Plan 代理 |
-| `laya-sidecar.service` | :8083 | 本地 Laya 决策模型（ROCm，约 7.8s 起，`/health` 应 200） |
 | `codebase-memory.service` | :9749 | cbm 知识图谱 daemon（applist 的 uv 项自带重启它） |
 
-已不存在：`headroom-scnet.service`、`headroom-siliconflow.service`、`:8790` 的 modelscope 实例
-（SCNet 额度耗尽 HTTP 429 `Token Plan quota has been exceeded` 后连同代理一起清掉）。
-语音输入（vinput）走 `headroom-deepseek` 的 :8787，链路与排障见技能 `fcitx-voice-input`。
+**已全部不存在的单元**（2026-11-01 复核，对它们 `restart` 只会报 `Unit ... not found`）：`headroom-deepseek/sensenova/step/scnet/siliconflow.service` 与 `laya-sidecar.service`——headroom 中转层 2026-10-03 整体拆除（模型链路改直连官方，`settings.yaml` 的 `baseURL` 不再指本地代理），SCNet 实例更早因额度耗尽（HTTP 429 `Token Plan quota has been exceeded`）清掉。**收尾重启实际只剩 dsh-web 一个必动**（+ 按需 dsh-web-dev）；本地没有模型代理，也就不存在「重启切断当前对话模型通道」的风险。语音输入（vinput）链路见技能 `fcitx-voice-input`。
 核实命令：`systemctl --user list-units --type=service --state=running`。
 
 顺序固定为「先体检 → 先撤走不受影响的 → 再发报告 → **最后才排程延时重启**」：
@@ -216,21 +210,21 @@ DLL=$(jq -r .exe $BIN/current.json 2>/dev/null | grep '\.dll$')
    ```
    （`~/.local/bin/python3`/venv 类入口自己带解释器，盯上面的 ELF 入口就够；2026-09-30 全绿。）
    有缺库就按「更新后缺库体检」节处置（只装重建版，**不要 `pacman -Sy`**）。
-1. **再重启除 dsh-web 外的所有服务**并确认 active（不影响当前对话）：
+1. **再重启除 dsh-web 外的所有服务**并确认 active（不影响当前对话）。单元清单以上面实测表为准，
+   用「存在才重启」的写法，避免对已拆除的单元报 not found：
    ```bash
-   systemctl --user restart headroom-sensenova.service headroom-step.service laya-sidecar.service
-   systemctl --user restart dsh-web-dev.service          # 先看 :3081 有无活跃连接（ss -tnp | grep :3081）
-   systemctl --user restart headroom-deepseek.service    # ⚠ 见下，必须与健康检查同一条调用
-   for u in headroom-deepseek headroom-sensenova headroom-step laya-sidecar dsh-web-dev; do
+   for u in dsh-web-dev codebase-memory; do            # 按实测表增删；cbm 已被 uv 项重启过
+     systemctl --user cat "$u.service" >/dev/null 2>&1 || { echo "skip $u（单元不存在）"; continue; }
+     systemctl --user restart "$u.service" || echo "!! $u 重启失败"
+   done
+   ss -tnp | grep :3081 || echo ":3081 无活跃连接"        # 重启 dsh-web-dev 前看一眼
+   for u in dsh-web dsh-web-dev codebase-memory; do
      printf '%-22s %s\n' "$u" "$(systemctl --user is-active $u.service)"; done
-   curl -s http://127.0.0.1:8787/health | jq -c '{version,status,ready}'
    ```
-   - **`:8787` 是本轮对话自己的模型通道**（`settings.yaml` 里 `agent-default-model.baseURL`），
-     重启它会短暂切断模型请求。安全做法：把 `restart` 与「轮询 `/health` 直到就绪」放在**同一条
-     阻塞的 bash 调用**里——bash 阻塞期间不会发出新的模型请求，等它恢复再继续，本轮就不会被打断。
-     别把 restart 单独拆成一次调用、返回后再由模型决定下一步（下一个请求可能正好落在重启窗口里）。
-     单元是 `Restart=on-failure`，起不来会自动重试；2026-09-30 实测 0.39.1 约 3s 就绪、本轮存活。
-   - 升级 headroom 后按下方「headroom 手工冒烟」先验二进制，再动生产服务。
+   - 若**将来又出现本地模型代理**（如重搭 headroom）：它就是当前对话的模型通道，必须把 `restart`
+     与「轮询 `/health` 直到就绪」放进**同一条阻塞的 bash 调用**——阻塞期间不会发出新的模型请求，
+     恢复后再继续，本轮才不会被打断；别拆成两次调用。
+   - 2026-11-01 起 headroom 已拆，本条只对未来的本地代理生效。
 2. **再输出第 6 步汇总报告**——报告里必须写明：重启**已排程**、延迟多少秒、怎么取消、页面会
    自动恢复。
 3. **最后排程 dsh-web 延时重启**（`<N>` 见下方选值）：
@@ -283,6 +277,9 @@ systemctl --user stop dsh-restart-once.timer
   dsh-restart-once.timer`，并 `systemctl --user reset-failed dsh-restart-once` 清理单元残留。
 
 ### headroom 手工冒烟（uv 升级后、重启生产前）
+
+> **2026-11-01 起整节作废**：headroom 中转层已于 2026-10-03 整体拆除，applist 里没有 headroom 项，
+> 本节不会再被触发。若将来重搭本地模型代理，重启前在闲置端口冒烟的原则仍然适用。
 
 `headroom-ai` 走 uv 升级后，先在没有流量的端口上验一遍新二进制，再动生产服务：
 
@@ -360,7 +357,7 @@ p=$(ss -tlnpH 'sport = :8791' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
    pnpm -C ~/projects/MyAI/deepseek-harness install --frozen-lockfile
    pnpm -C ~/projects/MyAI/deepseek-harness run clean && pnpm -C ~/projects/MyAI/deepseek-harness run build
    ```
-4. **重启**：按第 7 步顺序（headroom-* → 报告 → 排程延时重启 dsh-web），用「报告 → 排程」而非
+4. **重启**：按第 7 步顺序（先重启除 dsh-web 外的现存单元 → 报告 → 排程延时重启 dsh-web），用「报告 → 排程」而非
    同步重启，让升级报告完整留在会话里。
 
 ### 0.1.5 起的硬性坑（均已实证）
