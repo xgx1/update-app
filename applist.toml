@@ -233,14 +233,20 @@ match = "unable to lock database|database is locked|failed to init transaction"
 hint = "pacman 数据库锁残留：确认无 pacman/yay 进程运行后清锁重试"
 command = "if pgrep -x pacman >/dev/null || pgrep -f 'makepkg|yay' >/dev/null; then echo 'pacman/yay 仍在运行，跳过清锁'; exit 1; fi; sudo rm -f /var/lib/pacman/db.lck"
 
-# yay 交互提示挂住（cleanBuild / Diffs to show）：这两个选择型提示 --noconfirm 关不掉。
-# 2026-11-01 实证：4 个 AUR 包待升级、Build Files Exist → yay 停在提示上整轮失败。
-# 处置：带 --answerdiff None --answerclean All 重跑（yay 命令本身已改带这两个 flag，这里是兜底）。
+# ⚠️ 不要给 "Packages to cleanBuild?/Diffs to show?" 建 fixes.rules（2026-11-01 教训）：
+#   yay 带 --answerdiff/--answerclean 自动回答时**仍会把提示原文打进输出**，规则会命中成功输出、
+#   触发一次完整的多余 yay 重跑（--answerclean All 还会清掉构建目录 → AUR 源码包全额重编译）。
+#   修复只在 yay 命令的 flag 上，规则匹配不到「挂住」与「自动应答」的差别。
+
+# AUR 包同事务互斥（yay: "X and Y are in conflict"）：一个事务里两个包 provides/conflicts
+# 互相打架，pacman 整体中止 → 全批升级失败。需人工决定卸哪个/跳过哪个（先查哪个冗余）。
+# 2026-11-01 实例：aria2-next 3.0.9-3 新版 provides/conflicts rayburst，与 rayburst-bin 4.1.1
+# 互斥；rayburst 自带引擎 /usr/lib/Rayburst/bin/aria2-next，系统 aria2-next 冗余且 db 条目已空
+# → 用户拍板 Rns 掉它。
 [[fixes.rules]]
-match = "Packages to cleanBuild\\?|Diffs to show\\?"
-hint = "yay 的选择型交互提示（--noconfirm 关不掉）：带 --answerdiff None --answerclean All 重跑"
-command = "yay -Sua --noconfirm --answerdiff None --answerclean All"
-retry = true
+match = "are in conflict"
+hint = "同一事务里两个包互斥（新版 provides/conflicts 打架），pacman 整体中止。需人工决定：核对哪个包冗余（如 GUI 自带引擎、被替代的旧包）后 pacman -Rns 卸掉，或跳过其中一个的升级"
+ask_user = true
 
 # pacman keyring 过期（PGP 签名校验失败）：需要联网刷 keyring，让用户/AI 处理
 [[fixes.rules]]
