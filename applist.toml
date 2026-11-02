@@ -45,7 +45,6 @@ paths = [
 [[special.items]]
 name = "第三方插件上游检测（只 fetch，不改工作区）"
 paths = [
-  "C:/Users/Admin/Project/MyAI/dsh-extensions/vendor/dsh-genui",
   "C:/Users/Admin/Project/MyAI/dsh-extensions/vendor/billion-context",
 ]
 command = "git -C {path} fetch -q origin && git -C {path} rev-list --count HEAD..FETCH_HEAD"
@@ -77,6 +76,14 @@ command = "pwsh -NoProfile -File C:/Users/Admin/Project/update-app/scripts/post-
 match = "kookapp\\.cn.*is not valid|Please try again or create a new issue"
 hint = "scoop 清单下载被 403（防盗链/签名过期）：该应用无法用 scoop 装，去官网手动装"
 skip = true
+
+# 瞬时 TLS 抖动（本机 2026-11-02 实测：clash 7897 短暂异常时 github 反复
+# `schannel: server closed abruptly (missing close_notify)` / `failed to receive handshake`，
+# 十几分钟后自愈，整套 scoop 因此全灭）。这类不是配置错，重试一次基本就好，所以放在
+# 「网络问题跳过」规则之前，先自动重试。不写 command = 只重试一次。
+[[fixes.rules]]
+match = "schannel: server closed abruptly|schannel: failed to receive handshake|schannel: next InitializeSecurityContext failed"
+retry = true
 
 # 网络问题：先跳过，由调用方决定稍后重试
 [[fixes.rules]]
@@ -130,4 +137,12 @@ ask_user = true
 [[fixes.rules]]
 match = "Cannot find package '@deepseek-ai/.*imported from .*dsh-extensions"
 hint = "dsh-extensions/vendor 插件依赖悬空：在 dsh-extensions 里重指悬空链接并重建，然后重启 dsh-web"
+ask_user = true
+
+# 子模块 gitlink 指向上游已不存在的提交（上游 force-push 后丢失，2026-11-02 实测
+# `remote error: upload-pack: not our ref 4a9054429…` 卡住 skills/dotnet-skills）。
+# 本地无法补出那个对象：要么保持本地旧指针并回父仓提交指针，要么等上游修。
+[[fixes.rules]]
+match = "upload-pack: not our ref"
+hint = "子模块指针指向的提交在上游已不存在（force-push 丢失）：保持本地指针并在父仓提交（或等上游修），别重复 fetch"
 ask_user = true
