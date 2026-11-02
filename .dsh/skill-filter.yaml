@@ -1,0 +1,40 @@
+# update-app 项目级技能过滤
+#
+# 语义（packages/skill/skill-filter/src/filter.ts）：与个人层
+# ~/.dsh/skill-filter.yaml 取【并集】——项目层累加，不替换。
+# 两层都不允许的技能：不进模型目录、不能 /名称 调用、不注入上下文。
+# 本项目 .dsh/skills / .agents/skills 下的技能由过滤器放行，不在此列举。
+# 判定规则见个人层技能 enable-project-skills。
+# .NET 工作区：Blazor/MAUI/Web 27 枚 + rider IDE 三件套 3 枚。
+# 构建/MSBuild 18、测试与质量 25、技能开发 4、杂项 4 已在个人层，并集覆盖。
+allow:
+  - "analyzing-dotnet-performance"
+  - "author-component"
+  - "collect-user-input"
+  - "configure-auth"
+  - "convert-blazor-server-to-webapp"
+  - "coordinate-components"
+  - "create-blazor-project"
+  - "create-datadriven-aspnetcore"
+  - "debugging-code"
+  - "dotnet-aot-compat"
+  - "dotnet-maui-doctor"
+  - "dotnet-pinvoke"
+  - "dotnet-trace-collect"
+  - "dotnet-webapi"
+  - "fetch-and-send-data"
+  - "finding-tests"
+  - "maui-app-lifecycle"
+  - "maui-collectionview"
+  - "maui-data-binding"
+  - "maui-dependency-injection"
+  - "maui-safe-area"
+  - "maui-shell-navigation"
+  - "maui-theming"
+  - "optimizing-ef-core-queries"
+  - "plan-ui-change"
+  - "refactoring-code"
+  - "support-prerendering"
+  - "system-text-json-net11"
+  - "technology-selection"
+  - "use-js-interop"
