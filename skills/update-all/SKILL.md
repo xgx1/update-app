@@ -65,6 +65,11 @@ update-app 仓库（`github.com/xgx1/update-app`）**2026-10-15 起三分支**�
 
 ## 前置检查
 
+0. **分支必须先对**：`git -C ~/projects/update-app rev-parse --abbrev-ref HEAD` 必须是 `linux`。
+   `main` 分支按设计**不含 `applist.toml`**（2026-10-15 三分支模型：main 通用 / windows / linux 各带一份配置）。
+   2026-10-23 实证事故：本机停在 `main` 时跑 `run`，第一项「update-app」自己的 `git pull` 把仓库拉到
+   `chore: applist.toml 移到 windows/linux 分支`，**当场删掉了正在用的 applist.toml**（本次运行因配置已
+   载入内存而照跑，下次直接「找不到配置文件」）。修复：`git switch -c linux --track origin/linux`。
 1. **配置文件**：`~/projects/update-app/applist.toml`（修改后请向用户确认再动）。
    该文件**已全部改为 Arch 路径**（2026-09-13 复核：表内 8 条路径全部存在），不再是 Windows 迁移残留。
 2. **CLI 自举**：`~/projects/update-app/bin/current.json` 里的 `exe` 字段。
@@ -113,7 +118,10 @@ command = "yay -Sua --noconfirm"
 BIN=~/projects/update-app/bin
 DLL=$(jq -r .exe $BIN/current.json 2>/dev/null | grep '\.dll$')
 [ -n "$DLL" ] || DLL=$(ls -1dt $BIN/2026*/ | head -1)update-app.dll
-dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运行
+# ⚠️ 必须用 ~/.dotnet/dotnet 启动 CLI：pacman 升级 dotnet-runtime 会当场换掉
+#   /usr/share/dotnet 的文件，运行中的 CLI 再懒加载 System.Text.* 就崩（2026-11-01 实证，
+#   3 个 item 假失败 + summary 都没写出来）。~/.dotnet 是 dotnet-install 装的，pacman 碰不到。
+~/.dotnet/dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运行
 ```
 
 常用子命令：`run`（执行）、`list`（看配置）、`validate`（校验路径/依赖）、`self`（自更新发布）；
@@ -159,7 +167,7 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
 
 - 现象：直接调 current.json 的 dll 报错/起不来；或 publish 失败。
 - 处理：更新它本身 —— `git -C ~/projects/update-app pull`（有 remote 时），
-  修代码 bug，然后 `dotnet "$DLL" self --repo ~/projects/update-app -c ~/projects/update-app/applist.toml`
+  修代码 bug，然后 `~/.dotnet/dotnet "$DLL" self --repo ~/projects/update-app -c ~/projects/update-app/applist.toml`
   重新发布（会写入新的 current.json：Arch 上 `exe` 字段为 `update-app.dll` 路径），再重跑全流程。
 - `self` 内部用 DotnetResolver 按「SDK 版本最高」自动选 dotnet（→ `~/.dotnet/dotnet` 10.0.400）；两份都没了才需重建，
   重建走 `sudo pacman -S dotnet-sdk`（extra 源）或用 dotnet-install 装回 `~/.dotnet`（后者版本更新，会被优先选中）。
@@ -178,21 +186,15 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
 不要求重启系统**（内核等系统级更新后是否重启系统，由用户另行择机决定，与本次收尾无关）。
 
 本机 DSH 由 **systemd 用户服务**托管（不是 PM2），服务在 `~/.config/systemd/user/`。
-2026-09-30 实测清单（旧版只写「dsh-web + headroom-deepseek 两个」，已漂移，**别照抄旧清单**）：
+**2026-11-01 实测清单**（这张表漂移过三次，动手前一律用 `systemctl --user list-units --type=service --state=running` 复核，别照抄）：
 
 | 单元 | 端口 | 说明 |
 |---|---|---|
 | `dsh-web.service` | :3080 | 生产页面（**当前对话就在这里**）→ 只能延时重启 |
 | `dsh-web-dev.service` | :3081 | dev worktree 实例（`DSH_HOME=~/.dsh-dev`），2026-09-27 起重新上线 |
-| `headroom-deepseek.service` | :8787 | **DSH 默认模型的流量就走这里**（`settings.yaml` 的 `baseURL`）→ 见下方重启注意 |
-| `headroom-sensenova.service` | :8788 | SenseNova token-plan 代理 |
-| `headroom-step.service` | :8789 | StepFun Step Plan 代理 |
-| `laya-sidecar.service` | :8083 | 本地 Laya 决策模型（ROCm，约 7.8s 起，`/health` 应 200） |
 | `codebase-memory.service` | :9749 | cbm 知识图谱 daemon（applist 的 uv 项自带重启它） |
 
-已不存在：`headroom-scnet.service`、`headroom-siliconflow.service`、`:8790` 的 modelscope 实例
-（SCNet 额度耗尽 HTTP 429 `Token Plan quota has been exceeded` 后连同代理一起清掉）。
-语音输入（vinput）走 `headroom-deepseek` 的 :8787，链路与排障见技能 `fcitx-voice-input`。
+**已全部不存在的单元**（2026-11-01 复核，对它们 `restart` 只会报 `Unit ... not found`）：`headroom-deepseek/sensenova/step/scnet/siliconflow.service` 与 `laya-sidecar.service`——headroom 中转层 2026-10-03 整体拆除（模型链路改直连官方，`settings.yaml` 的 `baseURL` 不再指本地代理），SCNet 实例更早因额度耗尽（HTTP 429 `Token Plan quota has been exceeded`）清掉。**收尾重启实际只剩 dsh-web 一个必动**（+ 按需 dsh-web-dev）；本地没有模型代理，也就不存在「重启切断当前对话模型通道」的风险。语音输入（vinput）链路见技能 `fcitx-voice-input`。
 核实命令：`systemctl --user list-units --type=service --state=running`。
 
 顺序固定为「先体检 → 先撤走不受影响的 → 再发报告 → **最后才排程延时重启**」：
@@ -208,21 +210,21 @@ dotnet "$DLL" run --config ~/projects/update-app/applist.toml   # 可后台运�
    ```
    （`~/.local/bin/python3`/venv 类入口自己带解释器，盯上面的 ELF 入口就够；2026-09-30 全绿。）
    有缺库就按「更新后缺库体检」节处置（只装重建版，**不要 `pacman -Sy`**）。
-1. **再重启除 dsh-web 外的所有服务**并确认 active（不影响当前对话）：
+1. **再重启除 dsh-web 外的所有服务**并确认 active（不影响当前对话）。单元清单以上面实测表为准，
+   用「存在才重启」的写法，避免对已拆除的单元报 not found：
    ```bash
-   systemctl --user restart headroom-sensenova.service headroom-step.service laya-sidecar.service
-   systemctl --user restart dsh-web-dev.service          # 先看 :3081 有无活跃连接（ss -tnp | grep :3081）
-   systemctl --user restart headroom-deepseek.service    # ⚠ 见下，必须与健康检查同一条调用
-   for u in headroom-deepseek headroom-sensenova headroom-step laya-sidecar dsh-web-dev; do
+   for u in dsh-web-dev codebase-memory; do            # 按实测表增删；cbm 已被 uv 项重启过
+     systemctl --user cat "$u.service" >/dev/null 2>&1 || { echo "skip $u（单元不存在）"; continue; }
+     systemctl --user restart "$u.service" || echo "!! $u 重启失败"
+   done
+   ss -tnp | grep :3081 || echo ":3081 无活跃连接"        # 重启 dsh-web-dev 前看一眼
+   for u in dsh-web dsh-web-dev codebase-memory; do
      printf '%-22s %s\n' "$u" "$(systemctl --user is-active $u.service)"; done
-   curl -s http://127.0.0.1:8787/health | jq -c '{version,status,ready}'
    ```
-   - **`:8787` 是本轮对话自己的模型通道**（`settings.yaml` 里 `agent-default-model.baseURL`），
-     重启它会短暂切断模型请求。安全做法：把 `restart` 与「轮询 `/health` 直到就绪」放在**同一条
-     阻塞的 bash 调用**里——bash 阻塞期间不会发出新的模型请求，等它恢复再继续，本轮就不会被打断。
-     别把 restart 单独拆成一次调用、返回后再由模型决定下一步（下一个请求可能正好落在重启窗口里）。
-     单元是 `Restart=on-failure`，起不来会自动重试；2026-09-30 实测 0.39.1 约 3s 就绪、本轮存活。
-   - 升级 headroom 后按下方「headroom 手工冒烟」先验二进制，再动生产服务。
+   - 若**将来又出现本地模型代理**（如重搭 headroom）：它就是当前对话的模型通道，必须把 `restart`
+     与「轮询 `/health` 直到就绪」放进**同一条阻塞的 bash 调用**——阻塞期间不会发出新的模型请求，
+     恢复后再继续，本轮才不会被打断；别拆成两次调用。
+   - 2026-11-01 起 headroom 已拆，本条只对未来的本地代理生效。
 2. **再输出第 6 步汇总报告**——报告里必须写明：重启**已排程**、延迟多少秒、怎么取消、页面会
    自动恢复。
 3. **最后排程 dsh-web 延时重启**（`<N>` 见下方选值）：
@@ -275,6 +277,9 @@ systemctl --user stop dsh-restart-once.timer
   dsh-restart-once.timer`，并 `systemctl --user reset-failed dsh-restart-once` 清理单元残留。
 
 ### headroom 手工冒烟（uv 升级后、重启生产前）
+
+> **2026-11-01 起整节作废**：headroom 中转层已于 2026-10-03 整体拆除，applist 里没有 headroom 项，
+> 本节不会再被触发。若将来重搭本地模型代理，重启前在闲置端口冒烟的原则仍然适用。
 
 `headroom-ai` 走 uv 升级后，先在没有流量的端口上验一遍新二进制，再动生产服务：
 
@@ -352,7 +357,7 @@ p=$(ss -tlnpH 'sport = :8791' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
    pnpm -C ~/projects/MyAI/deepseek-harness install --frozen-lockfile
    pnpm -C ~/projects/MyAI/deepseek-harness run clean && pnpm -C ~/projects/MyAI/deepseek-harness run build
    ```
-4. **重启**：按第 7 步顺序（headroom-* → 报告 → 排程延时重启 dsh-web），用「报告 → 排程」而非
+4. **重启**：按第 7 步顺序（先重启除 dsh-web 外的现存单元 → 报告 → 排程延时重启 dsh-web），用「报告 → 排程」而非
    同步重启，让升级报告完整留在会话里。
 
 ### 0.1.5 起的硬性坑（均已实证）
@@ -388,7 +393,7 @@ p=$(ss -tlnpH 'sport = :8791' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
 ```sh
 cd ~/projects/MyAI/dsh-extensions/vendor/<插件>
 pnpm install --frozen-lockfile   # 上游 lock 变了就必须先装
-pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc && tsdown；evolve-modes=tsdown+归一化产物
+pnpm run build                   # 各仓脚本不同（tsc+tsdown / tsdown 等），用插件自己的 package.json 脚本
 ```
 
 - **先核对 peer/engines 与 harness 版本兼容**再重建：`jq -r .peerDependencies package.json` 与
@@ -398,11 +403,11 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
   并在报告里说明「重建了什么、重启后生效」。
 - `dsh-evolve-modes` 这类自研/自有 fork 若是**本地提交领先上游**（`git status -sb` 显示 `[领先 N]`），
   `git pull` 不动它，`fetch` 检测会报「上游无新提交」——指针与推送按 AGENTS.md 的 submodule 规矩单独处理。
-- ⚠️ **submodule 路径 pull 完要落一条指针提交（2026-09-30 固化）**：`vendor/dsh-genui`、`dsh-toolkit`、
-  `dsh-evolve-modes` 都是 `dsh-extensions` 的 submodule，fast-forward 之后父仓库会变成
-  `M vendor/dsh-genui`。这个脏指针**会挡住下一次 `git pull --ff-only`**（报
+- ⚠️ **submodule 路径 pull 完要落一条指针提交（2026-09-30 固化）**：`vendor/billion-context` 等
+  `dsh-extensions` 的 submodule，fast-forward 之后父仓库会变成
+  `M vendor/billion-context`。这个脏指针**会挡住下一次 `git pull --ff-only`**（报
   `Your local changes to the following files would be overwritten`，命中 WIP 规则降级成 needs_input，
-  每次都要人工介入）。正确收尾：`git -C ~/projects/MyAI/dsh-extensions add vendor/dsh-genui &&
+  每次都要人工介入）。正确收尾：`git -C ~/projects/MyAI/dsh-extensions add vendor/billion-context &&
   git commit -m "chore(submodule): bump …"`（**只提交指针，别顺手把别人的本地提交一起推**——
   push 与否交用户拍板）。同仓 `plugins/` 下（如 `dsh-laya-router`）不是 submodule，源码改了要
   自己 `pnpm run build`，产物时间戳比对同样适用。
@@ -411,13 +416,19 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
 
 | 日志特征（match） | 处理 |
 |---|---|
-| `Could not resolve host` / `Failed to connect` / `unable to access` / `open git-upload-pack` | 网络问题，规则已跳过；可设代理 `http://127.0.0.1:7897` 后重试（clash-verge 默认端口） |
+| `Could not resolve host` / `Failed to connect` / `unable to access` / `open git-upload-pack` | 网络问题，规则已跳过；可设代理 `http://127.0.0.1:7897` 后重试（clash-verge 默认端口）。⚠️ 先排除误命中：`Failed to connect to user scope bus via local transport` 不是网络问题，是 CLI 子进程缺 `XDG_RUNTIME_DIR`（见本节末两行） |
+| `Could not load file or assembly 'System.Text.*'`（run 跑到一半，多个 item 接连假失败、最后 summary 都写不出） | **pacman 当场升级了 dotnet-runtime**，运行中的 CLI 懒加载框架程序集时文件已被换掉。不是代码 bug：用 `~/.dotnet/dotnet` 启动 CLI 即可免疫（pacman 管不到那份），然后 `run --only <name>` 补跑假失败的项（2026-11-01 实证：pacman 项把 dotnet-runtime 10.0.13→10.0.14，yay/cbm/genui 三项连崩） |
+| `Failed to connect to user scope bus via local transport: $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined` | 命令里用了 `systemctl --user` 但 CLI 子进程没有用户总线环境（后台任务常剥掉这两个变量），还会被上面网络规则的 `Failed to connect` 误命中。处置：命令前加 `export XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus &&`（cbm 项已这么写） |
 | `git push` 报 `Failed to connect` / `Connection was reset` | 先查代理：`ss -tlnp \| grep 7897`（或 `curl -x http://127.0.0.1:7897 -sI https://github.com`）；端口在听仍失败 = 代理上游问题，本地 commit 不受影响，等网络恢复后重试 push |
 | `fatal: not a git repository` | 路径不是 git 仓库：确认路径 / `git init`，规则已 ask_user |
 | `CONFLICT` / `Automatic merge failed` | 上游冲突：人工解决（保留双方改动），规则已 ask_user |
 | `cannot pull with rebase: You have unstaged changes` / `Your local changes would be overwritten` / `Please commit your changes or stash them` | 仓库有 WIP：先 `git -C <path> status` 看改动，向用户确认 stash/commit/跳过，规则已 ask_user（git 的 rebase/merge 两种文案都已覆盖） |
-| `failed to init transaction (unable to lock database)` / `database is locked` | pacman 锁残留：确认无 pacman 进程后 `sudo rm /var/lib/pacman/db.lck` 重试（可固化规则） |
+| `failed to init transaction (unable to lock database)` / `failed to synchronize all databases (unable to lock database)` / `database is locked` | **先分清是谁持锁**：`pgrep -x pacman` / `pgrep -af 'yay -S'` 有活进程（常见是用户自己在终端跑 `yay -Syyu`，持锁可达数小时）⇒ 系统更新已在别处进行，本次跳过即可，**别删锁**（删了会砸掉正在跑的事务）；确认无进程才是残留锁，`sudo rm /var/lib/pacman/db.lck` 后重试。**注意报文陷阱**：持锁时 pacman 打的是「failed to synchronize all databases (unable to lock database)」，会被上面的网络规则先命中、给出「换镜像」的错误提示——已固化专门的 `unable to lock database` 规则置于网络规则之前 |
+| `路径不存在: /home/sx/.cache/yay`（yay AUR 项 needs_input） | yay 的构建缓存目录被清理过（btrfs 空间守卫/手工清缓存）：`mkdir -p ~/.cache/yay` 即可，yay 会自己往里重建，**不用改 applist.toml 的锚点路径**；`validate` 也会报这一条 |
+| `Service is NeedsReinstall` / `no managed core can hold mixed proxy port` / `proxyconnect tcp: dial tcp 127.0.0.1:7897: connect: connection refused` | clash-verge 升级后特权服务与 GUI 版本不一致 ⇒ 核心没起、7897 断开（yay 因此 exit 1，但包其实都装好了，看 `/var/log/pacman.log` 的 `[ALPM] upgraded` 确认）。修法：`sudo -n /usr/bin/clash-verge-service-install` → `sudo -n systemctl restart clash-verge-service` → `systemctl --user restart 'app-Clash\x20Verge@autostart.service'`，验收 `ss -tln \| grep 7897`。post-aur-restart.sh 已内置（见「AUR 升级后重启运行中的应用」） |
+| `无法获取某些文件` / `The requested URL returned error: 404` / `failed to retrieve some files`（单包级，全镜像 404） | **镜像 rebuild 窗口**：本地同步库落后于镜像文件树，被升级的版本已从所有镜像清掉（2026-10-23 实证：Arch Haskell 重建潮，`haskell-*` 全镜像 404，连 `pacman -Syy` 取回的仍是旧库）。处置：备份 `/etc/pacman.d/mirrorlist` → 把 `Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch` 置顶 → `sudo pacman -Syyu --noconfirm` → 成功后还原 mirrorlist（geo 的 db 与文件树一致）。**绝不要 `pacman -Sy`**（部分升级）；也别用 `--ignore` 逐个跳过缺失包：一次只忽略几个，下一轮又冒出新的一批，白折腾。 |
 | `invalid or corrupted package (PGP signature)` / `failed to commit transaction` | keyring 过期：`sudo pacman-key --refresh-keys` 或 `sudo pacman -Sy archlinux-keyring` 后重试 |
+| `X and Y are in conflict`（yay：同一事务两个包互斥，pacman 整体中止、全批失败） | 新版 AUR 包 provides/conflicts 打架（2026-11-01：aria2-next 3.0.9-3 与 rayburst-bin 4.1.1 互斥）。规则已 ask_user；处置口径：查哪个包冗余（GUI 常自带引擎/旧包被替代）+ 本地 db 条目是否已损坏（`ls /var/lib/pacman/local/<包>-<版本>/` 为空即是），拍板后 `sudo pacman -Rns <冗余包>`，别用 `--ignore` 逐个跳过 |
 | `target not found` / `failed to synchronize all databases (unable to lock database)` / 镜像问题 | 换镜像 `sudo pacman-mirrors -c China`（或编辑 /etc/pacman.d/mirrorlist），重试；AUR 包不存在则确认包名 |
 | `yay` 交互卡死超时 | 非 TTY 环境跑 `yay` 必须带 `--noconfirm`（与 ansible 无关的确认项会挂住）；要人工确认的在终端手动跑 |
 | 构建报 net10 不支持 / 「找不到带 SDK 的 dotnet」 | 用了个没 SDK 的 dotnet 入口。本机两份都带 SDK（`~/.dotnet/dotnet` 10.0.400 优先于 `/usr/bin/dotnet` 10.0.112）；`validate` 应显示 `[ok] dotnet: ~/.dotnet/dotnet` |
@@ -426,7 +437,7 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
 | 配置里路径报「不存在」（`~/...` 路径，2026-09-20 起） | **配置漂移**：该插件/仓库已被删除或改名。已固化成 fixes.rule → `needs_input`，把漂移事实摆给用户拍板后改 applist.toml（权威是 `~/.dsh/profiles/*/package.json` 的 `link:` 目标）。实例：`dsh-drop-to-path` 被移除、`vendor/dsh-evolve-modes` 新挂 |
 | 服务启动即崩：journal 里 `error while loading shared libraries: libXXX.so.N` + `status=127` | 系统升级把某个依赖的 **SONAME 换代**了（2026-09-18 实例：protobuf 36.0→36.1，`libprotobuf-lite.so.36.0.0` 消失，`vinput-daemon` 连崩三次；真正缺库的是**传递依赖** `libonnxruntime.so.1`，归属包 `onnxruntime-cpu` 当时还没重建）→ 按下方「更新后缺库体检」处置 |
 | `swaync.service` 长期 failed（`start-limit-hit`），journal 反复 `An instance of SwayNotificationCenter is already running!` | **假失败，别修进程**：`~/.config/hypr/hyprland.lua` 的 `hl.exec_cmd("swaync")` 已由 WM 拉起实例并持有 `org.freedesktop.Notifications`，systemd 单元（`Type=dbus` + 同名 BusName）必然抢不到名字 → exit 1 → `Restart=on-failure` 打满 `StartLimitBurst` → `start-limit-hit`。正确处置是关掉冗余单元：`systemctl --user disable --now swaync.service && systemctl --user reset-failed swaync.service`（2026-09-20 已修：单元 `MainPID=0`，停它不会碰 WM 那个实例）。验活：`busctl --user list | grep org.freedesktop.Notifications` 应仍由 WM 的 swaync 持有，再 `notify-send` 投一条实测链路。两种拉起顺序都收敛到同一个 daemon，所以这只产生假失败、不会真断通知。注意 `preset: enabled`——跑过 `systemctl --user preset` / `enable --all` 会把它重新启用，届时按本行再关一次 |
-| ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 6 条 `link:` 目标是（2026-09-20 核对）：`dsh-extensions/vendor/{dsh-genui,dsh-toolkit,dsh-evolve-modes}`（第三方克隆，2026-09-13 由 `_dsh_plugins_src/` 迁入；`dsh-drop-to-path` 同日已删）、`dsh-extensions/plugins/{dsh-sidebar-taskbar,dsh-task-manager,web-dsh-web-extension}`（自研）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**⚠️ pull 只是刷新源码**：这类插件加载的是各仓库自己的 `lib/`/`dist/` 构建产物，`git pull` 后不 `pnpm build` 则运行行为仍是旧版（2026-09-20 dsh-genui 0.10→0.11.1-preview.2 实测：lib/client.js 还是 9月12日 的旧产物）。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`、`vendor/dsh-drop-to-path`。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
+| ⚠️ 清理工作区前必须先查 `~/.dsh/profiles/*/package.json` 的 `link:` 依赖 | 当前 `link:` 目标以 `~/.dsh/profiles/web/package.json` 为权威（2026-11-01 核对，9 条）：`dsh-extensions/vendor/{dsh-blender-plugin,OpenViking/examples/dsh-memory-plugin,billion-context,dsh-ops}`（第三方）、`dsh-extensions/plugins/{dsh-dracula-theme,dsh-llm-retry-schedule,dsh-perf-mode,dsh-sidebar-taskbar,dsh-task-manager}`（自研）。它们是 web profile 的**运行中插件源码**（bundle 依赖），不是研究残留——误删会导致下次 dsh-web 重启加载失败。**⚠️ pull 只是刷新源码**：这类插件加载的是各仓库自己的 `lib/`/`dist/` 构建产物，`git pull` 后不 `pnpm build` 则运行行为仍是旧版（2026-09-20 dsh-genui 0.10→0.11.1-preview.2 实测：lib/client.js 还是 9月12日 的旧产物）。**已退役、不必再保留的旧路径**：`_dsh_plugins_src/MemOS`、`_dsh_plugins_src/dsh-agent-teams`（改 npm 交付）、`_dsh_plugins_src/` 与 `rider-skills/` 两个一级目录（已并入 `dsh-extensions/vendor/`）、`dsh-web-ui`、`dsh-extensions-dev`、`vendor/dsh-drop-to-path`、`vendor/dsh-genui`（2026-11-01 用户确认插件不用，submodule 已移除、profile 引用 2026-10-14 已摘）。误删恢复：按 `npm view <pkg> repository.url` 或 GitHub 搜索克隆回上表原路径，再 `pnpm install` |
 | `plugin tree failed to load: dsh: N entries did not activate`（含 `pending (waiting for service: sandboxPolicy)`） | profile patch 把 `sandbox-policy` 关掉了：0.1.5 起必须挂载（见「DSH harness 大版本升级」节）。改 `~/.dsh/profiles/web/cordis.patch.yml` 注释掉该 disabled 行后重启 dsh-web |
 | 页面 `Failed to load plugins` + 控制台 `require("@deepseek-ai/dsh-client-…") missed the module table` | 自建客户端插件还在引用旧平台包：改 import 到现行 seed（`dsh-client-store` 等）并同步 tsdown `external`，`pnpm build` 后刷新页面 |
 | dsh-web 反复重启（`systemctl --user show dsh-web -p NRestarts` 很大） | 先看 `journalctl --user -u dsh-web -n 60`：多半是插件树 pending / patch 语法错误。**别让它在崩溃循环里放着**——每 3s 重试一次；修好 patch 后按第 7 步排程延时重启（先说明修了什么，再让重启发生） |
@@ -440,8 +451,10 @@ pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc 
 `yay`/`pacman` 只换磁盘文件，运行中的 GUI/常驻进程仍旧代码：clash-verge 升级后会一直显示旧版本直到下次登录（pacman 安装脚本自己也提示要重启）。applist.toml 的「yay AUR 更新」项已挂后置命令 `bash /home/sx/projects/update-app/scripts/post-aur-restart.sh`：
 
 - 判据：**二进制 mtime 晚于进程启动时间**（`/proc/<pid>` 的 mtime）⇒ 该进程是升级前起的，需重启。降级/同内容重装会误判成陈旧，代价只是多重启一次。
-- 处理对象：用户单元 `rayburst`（下载器；`KillMode=mixed` 保证引擎子进程一起换）、`clash-verge` GUI（杀掉后用原进程环境 `setsid -f` 拉起——复用 `/proc/<pid>/environ` 的 DISPLAY/WAYLAND/DBUS）、系统单元 `clash-verge-service`（`sudo -n` 重启）。
-- 退出码 0=就绪（含「无需重启」），1=有应用没拉起来（update-app 会把这行标成失败项）。`verge-mihomo` 核心由 `clash-verge-service`（ppid=1）持有，杀 GUI 不会断代理。
+- 处理对象：`rayburst`（下载器）与 `clash-verge` GUI —— **两者都由 XDG autostart 生成器托管，单元名是 `app-<Name>@autostart.service`**（clash-verge 的那个含空格，写作 `app-Clash\x20Verge@autostart.service`）；系统单元 `clash-verge-service`（`sudo -n` 重启）。派生的单元名一律交给 `systemctl --user restart`，**不要自己拼 `.service` 后缀**（会得到 `…@autostart.service.service`），也不要拿 `pgrep -x <名字>` 判活（升级瞬间进程已退出 → 误判「未运行」直接跳过）。
+- 退出码 0=就绪（含「无需重启」），1=有应用没拉起来或代理没恢复（update-app 会把这行标成失败项）。
+- **2026-11-05 实测：重启 GUI ≠ 代理可用。** `clash-verge-rev-bin` 2.5.8→2.5.10 升级换了 `/usr/bin/clash-verge-service`，而 `/var/lib/clash-verge-service/bin/` 那份副本是旧的 ⇒ GUI 报 `Service is NeedsReinstall, so no managed core can hold mixed proxy port 7897`，**核心不起、7897 全断**；随后 `yay` 末尾那步 AUR RPC 走代理失败 ⇒ 整个「yay AUR 更新」项标 failed（**4 个包其实都装好了**，看 `/var/log/pacman.log` 的 `[ALPM] upgraded` 即可确认）。修法（脚本现已内置）：`sudo -n /usr/bin/clash-verge-service-install` → `sudo -n systemctl restart clash-verge-service` → `systemctl --user restart app-Clash\x20Verge@autostart.service`，验收看 `ss -tln | grep 127.0.0.1:7897`。脚本在 GUI 重启后固定做这条验收，不通就自动走上面的修复。
+- `verge-mihomo` 核心由 `clash-verge-service`（系统单元）持有，单纯杀掉 GUI 不会断代理；断的永远是「服务与 GUI 版本不一致 ⇒ 核心没被拉起」这一种。
 
 ### 更新后缺库体检（SONAME 换代类故障）
 
