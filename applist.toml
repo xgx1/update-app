@@ -197,6 +197,25 @@ match = "fatal: not a git repository"
 hint = "该目录不是 git 仓库（或路径不对/未 git init），需要人工确认路径"
 ask_user = true
 
+# yay 构建缓存目录被清理（锚点路径不存在，但 yay 本身没坏）：建空目录后重试即可，无需改配置。
+# 2026-11-05 实证：~/.cache/yay 被清 → yay AUR 项 needs_input；yay 自己会在构建时重建该目录。
+# 必须排在下面通用的「路径不存在」规则之前（规则按顺序首个命中生效）。
+[[fixes.rules]]
+match = '路径不存在: /home/sx/\.cache/yay'
+command = "mkdir -p /home/sx/.cache/yay"
+retry = true
+hint = "yay 的构建缓存目录被清理过：已建回空目录，yay 会自己重建缓存"
+
+# 仓库停留在**未完成的 rebase/merge** 上：git pull 直接报 unmerged files，与「有未提交修改」不同——
+# 这不是 WIP，而是上一次变基中断的残留。2026-11-05 实证：update-app 卡在 interactive rebase
+# 冲突（linux 变基到 main，而 main 早已是 linux 的祖先 = 这次变基本身没意义），
+# 工作区里那份 applist.toml 还是旧副本。处置见技能「中断的变基」：先 git status 看剩余 todo，
+# 分支已含目标 base 时 git rebase --abort 无损（被重放的提交都在分支上），随后重跑即可。
+[[fixes.rules]]
+match = "Pulling is not possible because you have unmerged files|unresolved conflict"
+hint = "仓库停在未完成的 rebase/merge 上（不是 WIP）：git status 看剩余 todo；若目标 base 已是当前分支的祖先，git rebase --abort 无损，之后重跑本项。有疑问先备份工作区再操作"
+ask_user = true
+
 # 配置漂移：applist.toml 里配的路径已不存在（插件被移除/改名/迁走）。
 # 2026-09-20 固化：此前这类只报「未命中已知修复规则」→ failed，需要 AI 介入；
 # 现在降级为 needs_input，由技能把漂移事实摆给用户拍板（实例：dsh-drop-to-path 已删）。

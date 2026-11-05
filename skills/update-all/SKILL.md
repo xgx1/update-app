@@ -424,6 +424,8 @@ pnpm run build                   # 各仓脚本不同（tsc+tsdown / tsdown 等�
 | `CONFLICT` / `Automatic merge failed` | 上游冲突：人工解决（保留双方改动），规则已 ask_user |
 | `cannot pull with rebase: You have unstaged changes` / `Your local changes would be overwritten` / `Please commit your changes or stash them` | 仓库有 WIP：先 `git -C <path> status` 看改动，向用户确认 stash/commit/跳过，规则已 ask_user（git 的 rebase/merge 两种文案都已覆盖） |
 | `failed to init transaction (unable to lock database)` / `failed to synchronize all databases (unable to lock database)` / `database is locked` | **先分清是谁持锁**：`pgrep -x pacman` / `pgrep -af 'yay -S'` 有活进程（常见是用户自己在终端跑 `yay -Syyu`，持锁可达数小时）⇒ 系统更新已在别处进行，本次跳过即可，**别删锁**（删了会砸掉正在跑的事务）；确认无进程才是残留锁，`sudo rm /var/lib/pacman/db.lck` 后重试。**注意报文陷阱**：持锁时 pacman 打的是「failed to synchronize all databases (unable to lock database)」，会被上面的网络规则先命中、给出「换镜像」的错误提示——已固化专门的 `unable to lock database` 规则置于网络规则之前 |
+| `路径不存在: /home/sx/.cache/yay`（yay AUR 项 needs_input） | yay 的构建缓存目录被清理过（btrfs 空间守卫/手工清缓存）：`mkdir -p ~/.cache/yay` 即可，yay 会自己往里重建，**不用改 applist.toml 的锚点路径**；`validate` 也会报这一条 |
+| `Service is NeedsReinstall` / `no managed core can hold mixed proxy port` / `proxyconnect tcp: dial tcp 127.0.0.1:7897: connect: connection refused` | clash-verge 升级后特权服务与 GUI 版本不一致 ⇒ 核心没起、7897 断开（yay 因此 exit 1，但包其实都装好了，看 `/var/log/pacman.log` 的 `[ALPM] upgraded` 确认）。修法：`sudo -n /usr/bin/clash-verge-service-install` → `sudo -n systemctl restart clash-verge-service` → `systemctl --user restart 'app-Clash\x20Verge@autostart.service'`，验收 `ss -tln \| grep 7897`。post-aur-restart.sh 已内置（见「AUR 升级后重启运行中的应用」） |
 | `无法获取某些文件` / `The requested URL returned error: 404` / `failed to retrieve some files`（单包级，全镜像 404） | **镜像 rebuild 窗口**：本地同步库落后于镜像文件树，被升级的版本已从所有镜像清掉（2026-10-23 实证：Arch Haskell 重建潮，`haskell-*` 全镜像 404，连 `pacman -Syy` 取回的仍是旧库）。处置：备份 `/etc/pacman.d/mirrorlist` → 把 `Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch` 置顶 → `sudo pacman -Syyu --noconfirm` → 成功后还原 mirrorlist（geo 的 db 与文件树一致）。**绝不要 `pacman -Sy`**（部分升级）；也别用 `--ignore` 逐个跳过缺失包：一次只忽略几个，下一轮又冒出新的一批，白折腾。 |
 | `invalid or corrupted package (PGP signature)` / `failed to commit transaction` | keyring 过期：`sudo pacman-key --refresh-keys` 或 `sudo pacman -Sy archlinux-keyring` 后重试 |
 | `X and Y are in conflict`（yay：同一事务两个包互斥，pacman 整体中止、全批失败） | 新版 AUR 包 provides/conflicts 打架（2026-11-01：aria2-next 3.0.9-3 与 rayburst-bin 4.1.1 互斥）。规则已 ask_user；处置口径：查哪个包冗余（GUI 常自带引擎/旧包被替代）+ 本地 db 条目是否已损坏（`ls /var/lib/pacman/local/<包>-<版本>/` 为空即是），拍板后 `sudo pacman -Rns <冗余包>`，别用 `--ignore` 逐个跳过 |
@@ -449,8 +451,10 @@ pnpm run build                   # 各仓脚本不同（tsc+tsdown / tsdown 等�
 `yay`/`pacman` 只换磁盘文件，运行中的 GUI/常驻进程仍旧代码：clash-verge 升级后会一直显示旧版本直到下次登录（pacman 安装脚本自己也提示要重启）。applist.toml 的「yay AUR 更新」项已挂后置命令 `bash /home/sx/projects/update-app/scripts/post-aur-restart.sh`：
 
 - 判据：**二进制 mtime 晚于进程启动时间**（`/proc/<pid>` 的 mtime）⇒ 该进程是升级前起的，需重启。降级/同内容重装会误判成陈旧，代价只是多重启一次。
-- 处理对象：用户单元 `rayburst`（下载器；`KillMode=mixed` 保证引擎子进程一起换）、`clash-verge` GUI（杀掉后用原进程环境 `setsid -f` 拉起——复用 `/proc/<pid>/environ` 的 DISPLAY/WAYLAND/DBUS）、系统单元 `clash-verge-service`（`sudo -n` 重启）。
-- 退出码 0=就绪（含「无需重启」），1=有应用没拉起来（update-app 会把这行标成失败项）。`verge-mihomo` 核心由 `clash-verge-service`（ppid=1）持有，杀 GUI 不会断代理。
+- 处理对象：`rayburst`（下载器）与 `clash-verge` GUI —— **两者都由 XDG autostart 生成器托管，单元名是 `app-<Name>@autostart.service`**（clash-verge 的那个含空格，写作 `app-Clash\x20Verge@autostart.service`）；系统单元 `clash-verge-service`（`sudo -n` 重启）。派生的单元名一律交给 `systemctl --user restart`，**不要自己拼 `.service` 后缀**（会得到 `…@autostart.service.service`），也不要拿 `pgrep -x <名字>` 判活（升级瞬间进程已退出 → 误判「未运行」直接跳过）。
+- 退出码 0=就绪（含「无需重启」），1=有应用没拉起来或代理没恢复（update-app 会把这行标成失败项）。
+- **2026-11-05 实测：重启 GUI ≠ 代理可用。** `clash-verge-rev-bin` 2.5.8→2.5.10 升级换了 `/usr/bin/clash-verge-service`，而 `/var/lib/clash-verge-service/bin/` 那份副本是旧的 ⇒ GUI 报 `Service is NeedsReinstall, so no managed core can hold mixed proxy port 7897`，**核心不起、7897 全断**；随后 `yay` 末尾那步 AUR RPC 走代理失败 ⇒ 整个「yay AUR 更新」项标 failed（**4 个包其实都装好了**，看 `/var/log/pacman.log` 的 `[ALPM] upgraded` 即可确认）。修法（脚本现已内置）：`sudo -n /usr/bin/clash-verge-service-install` → `sudo -n systemctl restart clash-verge-service` → `systemctl --user restart app-Clash\x20Verge@autostart.service`，验收看 `ss -tln | grep 127.0.0.1:7897`。脚本在 GUI 重启后固定做这条验收，不通就自动走上面的修复。
+- `verge-mihomo` 核心由 `clash-verge-service`（系统单元）持有，单纯杀掉 GUI 不会断代理；断的永远是「服务与 GUI 版本不一致 ⇒ 核心没被拉起」这一种。
 
 ### 更新后缺库体检（SONAME 换代类故障）
 
