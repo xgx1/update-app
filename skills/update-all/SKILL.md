@@ -391,6 +391,10 @@ pnpm install --frozen-lockfile   # 上游 lock 变了就必须先装
 pnpm run build                   # 各仓脚本不同：genui=rm -rf lib && tsc && tsdown；evolve-modes=tsdown+归一化产物
 ```
 
+- **Windows 上没有 `pnpm`**（PATH 里只有 scoop `nodejs-lts` 自带的 npm，`pnpm` 查无此命令，
+  2026-11-07 实测 `pnpm : not recognized`）：直接跑仓内本地构建器
+  `plugins\<插件>\node_modules\.bin\tsdown.cmd`（= `pnpm run build` 的等价物）。
+  `node_modules` 已存在且 `git pull` 没改 `package.json`/lock 时，跳过 install 也行。
 - **先核对 peer/engines 与 harness 版本兼容**再重建：`jq -r .peerDependencies package.json` 与
   `dsh --version`（2026-09-20：genui 允许 `^0.1.6-alpha.1`，本机 harness `0.1.6-alpha.2` → 兼容）。
 - 成群重建时按仓库顺序来（`pnpm install` 会动各自 `node_modules`），别并行。
