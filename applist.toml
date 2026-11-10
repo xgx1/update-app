@@ -257,6 +257,19 @@ command = "if pgrep -x pacman >/dev/null || pgrep -f 'makepkg|yay' >/dev/null; t
 #   触发一次完整的多余 yay 重跑（--answerclean All 还会清掉构建目录 → AUR 源码包全额重编译）。
 #   修复只在 yay 命令的 flag 上，规则匹配不到「挂住」与「自动应答」的差别。
 
+# dotnet preview 冲突（中文报文，通用 "are in conflict" 规则匹配不到）：AUR 包升级后依赖 .NET 11，
+# 而 11 只有 AUR 的 preview/rc 包 → dotnet-host-preview-bin 与 pacman 的 dotnet-host 10 互斥；
+# pacman -U --noconfirm 对「删除 dotnet-host 吗? [y/N]」答默认 N → 「检测到未解决的软件包冲突」，整批失败。
+# 2026-11-10 实例：watt-toolkit-bin 3.2.0 依赖 aspnet-runtime-11.0/dotnet-runtime-11.0，用户拍板换 preview。
+# 拍板后的处置：sudo pacman -Rdd --noconfirm dotnet-sdk dotnet-runtime-10.0 dotnet-targeting-pack
+#   aspnet-runtime-10.0 aspnet-targeting-pack-10.0 dotnet-host
+#   → sudo pacman -U --noconfirm ~/.cache/yay/dotnet-core-preview-bin/*.pkg.tar.zst → 再装目标包。
+# 代价：/usr/bin/dotnet 变 11 preview；update-app 自己仍用 ~/.dotnet/dotnet（DotnetResolver 实测仍选它）。
+[[fixes.rules]]
+match = "与 dotnet-host-?\\d*\\.?\\d*.*有冲突|dotnet-host-preview-bin.*有冲突|未解决的软件包冲突"
+hint = "AUR 目标包需要 .NET 11 preview，与系统 dotnet 10（pacman dotnet-host）互斥。需拍板：(A) 跳过该包，等 dotnet 11 进官方仓库；(B) 卸掉 pacman dotnet 10 装 dotnet-core-preview-bin（/usr/bin/dotnet 变 preview，update-app 仍用 ~/.dotnet）。选 B 的命令：sudo pacman -Rdd --noconfirm dotnet-sdk dotnet-runtime-10.0 dotnet-targeting-pack aspnet-runtime-10.0 aspnet-targeting-pack-10.0 dotnet-host && sudo pacman -U --noconfirm ~/.cache/yay/dotnet-core-preview-bin/*.pkg.tar.zst"
+ask_user = true
+
 # AUR 包同事务互斥（yay: "X and Y are in conflict"）：一个事务里两个包 provides/conflicts
 # 互相打架，pacman 整体中止 → 全批升级失败。需人工决定卸哪个/跳过哪个（先查哪个冗余）。
 # 2026-11-01 实例：aria2-next 3.0.9-3 新版 provides/conflicts rayburst，与 rayburst-bin 4.1.1
