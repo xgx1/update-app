@@ -456,6 +456,21 @@ pnpm run build                   # 各仓脚本不同（tsc+tsdown / tsdown 等�
 - **2026-11-05 实测：重启 GUI ≠ 代理可用。** `clash-verge-rev-bin` 2.5.8→2.5.10 升级换了 `/usr/bin/clash-verge-service`，而 `/var/lib/clash-verge-service/bin/` 那份副本是旧的 ⇒ GUI 报 `Service is NeedsReinstall, so no managed core can hold mixed proxy port 7897`，**核心不起、7897 全断**；随后 `yay` 末尾那步 AUR RPC 走代理失败 ⇒ 整个「yay AUR 更新」项标 failed（**4 个包其实都装好了**，看 `/var/log/pacman.log` 的 `[ALPM] upgraded` 即可确认）。修法（脚本现已内置）：`sudo -n /usr/bin/clash-verge-service-install` → `sudo -n systemctl restart clash-verge-service` → `systemctl --user restart app-Clash\x20Verge@autostart.service`，验收看 `ss -tln | grep 127.0.0.1:7897`。脚本在 GUI 重启后固定做这条验收，不通就自动走上面的修复。
 - `verge-mihomo` 核心由 `clash-verge-service`（系统单元）持有，单纯杀掉 GUI 不会断代理；断的永远是「服务与 GUI 版本不一致 ⇒ 核心没被拉起」这一种。
 
+### 孤儿包自动清理（2026-11-11 落成）
+
+`pacman -Syu` 换代后常剩一批「当初作为依赖装进来、现在已无人 required」的包（2026-11-11 实测 10 个：cli11、nlohmann-json、granite7、seatd、uthash、simde、yasm、cppunit、libtorrent-rasterbar、libayatana-indicator，`-Rns` 连带清掉 ayatana-ido 共 11 个）。applist.toml 新增「pacman 孤儿包清理」项，排在 pacman 系统更新之后、yay 之前：
+
+```toml
+[[source.projects]]
+name = "pacman 孤儿包清理"
+path = "/var/cache/pacman/pkg"
+command = 'pkgs=$(pacman -Qtdq); if [ -n "$pkgs" ]; then sudo pacman -Rns --noconfirm $pkgs; else echo "no orphan packages"; fi'
+```
+
+- 判据就是 `pacman -Qtdq`（作为依赖装入、已无人 required）；`-Rns` 会顺带清「这次移除之后才变孤儿」的传递依赖，所以删的包数可能比 `-Qtdq` 列出的多。
+- **用户 2026-11-11 明确要求自动移除，不再逐个询问**。要保留某个包（例如某个程序的可选依赖），先 `sudo pacman -D --asexplicit <包>` 钉成显式——2026-10-15 对 cabextract / ntsync-autoload 就是这么处理的。
+- 边界：optdepends 不参与判据，删掉不影响已启用功能，但会失去该可选能力；需要时装回并 `--asexplicit`。pacman 库锁被占（另一事务在跑）时该项失败，命中 fixes.rules 的 `unable to lock database` 规则跳过，下一轮再清。
+
 ### 更新后缺库体检（SONAME 换代类故障）
 
 **症状**：某个 systemd 服务/程序在升级后启动即崩，journal 里是
